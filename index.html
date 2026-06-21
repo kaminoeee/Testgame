@@ -2,8 +2,11 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>オンライン対戦Tetris</title>
+    <title>オンラインTetris</title>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 30'%3E%3Cstyle%3E.b%7Bstroke:%230f172a;stroke-width:1.5;%7D%3C/style%3E%3Crect x='10' y='0' width='10' height='10' fill='%23a855f7' class='b'/%3E%3Crect x='0' y='10' width='10' height='10' fill='%23a855f7' class='b'/%3E%3Crect x='10' y='10' width='10' height='10' fill='%23a855f7' class='b'/%3E%3Crect x='20' y='10' width='10' height='10' fill='%23a855f7' class='b'/%3E%3C/svg%3E">
+
     <style>
         :root {
             --bg-color: #0f172a;
@@ -24,12 +27,28 @@
             min-height: 100vh;
             box-sizing: border-box;
         }
-        h1 {
-            color: var(--accent-color);
-            margin-bottom: 20px;
-            font-weight: 700;
+        
+        .tetris-logo {
+            display: flex;
+            gap: 2px;
+            font-size: 32px;
+            font-weight: 900;
             letter-spacing: 1px;
+            margin-bottom: 25px;
+            text-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
+        .tetris-logo span {
+            padding: 2px 10px;
+            border-radius: 4px;
+            border-bottom: 3px solid rgba(0,0,0,0.3);
+        }
+        .t1 { background: #ef4444; color: #fff; }
+        .t2 { background: #3b82f6; color: #fff; }
+        .t3 { background: #eab308; color: #000; }
+        .t4 { background: #22c55e; color: #fff; }
+        .t5 { background: #a855f7; color: #fff; }
+        .t6 { background: #06b6d4; color: #fff; }
+
         #lobby-view {
             background: var(--panel-bg);
             border: 1px solid var(--border-color);
@@ -145,6 +164,8 @@
             border-radius: 8px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
+        
+        /* 勝敗およびカウントダウン共通の画面覆いスタイル */
         .result-screen {
             display: none;
             position: absolute;
@@ -163,6 +184,26 @@
             border-radius: 8px;
             letter-spacing: 2px;
         }
+        
+        /* 💡 カウントダウン専用のスタイル定義 */
+        .countdown-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.5);
+            color: #eab308; /* 特徴的な黄色 */
+            font-size: 80px; /* 特大サイズ */
+            font-weight: 900;
+            line-height: 600px;
+            text-align: center;
+            z-index: 20;
+            border-radius: 8px;
+            pointer-events: none; /* キー操作を邪魔しない */
+            text-shadow: 0 0 20px rgba(234, 179, 8, 0.6);
+        }
+
         .controls-hint {
             color: #64748b;
             font-size: 14px;
@@ -189,7 +230,14 @@
 </head>
 <body>
 
-    <h1>オンラインTetris</h1>
+    <div class="tetris-logo">
+        <span class="t1">T</span>
+        <span class="t2">E</span>
+        <span class="t3">T</span>
+        <span class="t4">R</span>
+        <span class="t5">I</span>
+        <span class="t6">S</span>
+    </div>
 
     <div id="lobby-view">
         <div class="input-group">
@@ -220,6 +268,7 @@
                     </div>
                     <div class="main-canvas-container">
                         <canvas id="local-canvas" width="300" height="600" style="border: 2px solid var(--border-color); background: #020617;"></canvas>
+                        <div id="local-countdown" class="countdown-overlay" style="display: none;"></div>
                         <div id="local-result" class="result-screen"></div>
                     </div>
                 </div>
@@ -241,6 +290,7 @@
                     </div>
                     <div class="main-canvas-container">
                         <canvas id="remote-canvas" width="300" height="600" style="border: 2px solid var(--border-color); background: #020617;"></canvas>
+                        <div id="remote-countdown" class="countdown-overlay" style="display: none;"></div>
                         <div id="remote-result" class="result-screen"></div>
                     </div>
                 </div>
@@ -317,10 +367,12 @@
         function setupConnection() {
             conn.on('open', () => {
                 statusEl.textContent = "対戦接続完了！"; statusEl.style.color = "#10b981";
-                printLog(`対戦相手が接続しました！ゲームを開始します。`);
+                printLog(`対戦相手が接続しました！カウントダウンを開始します。`);
                 conn.send({ type: 'NAME', name: document.getElementById('player-name-input').value });
                 switchView(true);
-                startGame();
+                
+                // 💡 すぐに開始せず、3カウントダウンを挟む
+                startCountdown();
             });
 
             conn.on('data', (data) => {
@@ -339,7 +391,7 @@
 
             conn.on('close', () => {
                 printLog(`⚠️ 通信が切断されました。`, true);
-                if (gameInterval) { 
+                if (gameInterval || isCountingDown) { 
                     endGame(true); 
                     printLog("🏆 相手の回線が切断されたため、あなたの不戦勝です！");
                 }
@@ -374,19 +426,53 @@
         let currentPiece = { shape: [], colorId: 0, x: 0, y: 0 };
         let remotePiece = null; let localHoldId = null; let remoteHoldId = null; let hasHeld = false;
         let gameInterval = null; let pendingAttackLines = 0;
+        let isCountingDown = false; // 💡 カウントダウン中フラグ（操作禁止用）
 
-        function startGame() {
+        // 💡 カウントダウン処理
+        function startCountdown() {
+            isCountingDown = true;
             localField = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
             remoteField = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
             localHoldId = null; remoteHoldId = null; remotePiece = null; hasHeld = false; pendingAttackLines = 0;
             
             document.getElementById('local-result').style.display = 'none';
             document.getElementById('remote-result').style.display = 'none';
+            
+            const localCdEl = document.getElementById('local-countdown');
+            const remoteCdEl = document.getElementById('remote-countdown');
+            localCdEl.style.display = 'block';
+            remoteCdEl.style.display = 'block';
 
-            spawnPiece();
-            if (gameInterval) clearInterval(gameInterval);
-            gameInterval = setInterval(gameLoop, 800);
-            sendState();
+            let count = 3;
+            localCdEl.textContent = count;
+            remoteCdEl.textContent = count;
+            draw();
+
+            let cdInterval = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    localCdEl.textContent = count;
+                    remoteCdEl.textContent = count;
+                } else if (count === 0) {
+                    localCdEl.textContent = "GO!";
+                    localCdEl.style.color = "#4ade80"; // GO!は緑色に
+                    remoteCdEl.textContent = "GO!";
+                    remoteCdEl.style.color = "#4ade80";
+                    
+                    // 実ゲーム処理の開始
+                    spawnPiece();
+                    if (gameInterval) clearInterval(gameInterval);
+                    gameInterval = setInterval(gameLoop, 800);
+                    isCountingDown = false; // 操作を解禁
+                    sendState();
+                } else {
+                    clearInterval(cdInterval);
+                    localCdEl.style.display = 'none';
+                    remoteCdEl.style.display = 'none';
+                    localCdEl.style.color = "#eab308"; // 色を元に戻しておく
+                    remoteCdEl.style.color = "#eab308";
+                }
+            }, 1000);
         }
 
         function spawnPiece() {
@@ -402,7 +488,7 @@
         }
 
         function holdPiece() {
-            if (hasHeld || !gameInterval) return;
+            if (hasHeld || !gameInterval || isCountingDown) return;
             const currentId = currentPiece.colorId;
             if (localHoldId === null) {
                 localHoldId = currentId; spawnPiece();
@@ -428,7 +514,7 @@
         }
 
         function gameLoop() {
-            if (!gameInterval) return;
+            if (!gameInterval || isCountingDown) return;
             if (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) {
                 currentPiece.y++; sendState();
             } else {
@@ -436,12 +522,8 @@
             }
         }
 
-        // 固定化から次への一連の処理を分離
         function lockAndProceed() {
-            lockPiece();
-            clearLines();
-            spawnPiece();
-            sendState();
+            lockPiece(); clearLines(); spawnPiece(); sendState();
         }
 
         function lockPiece() {
@@ -486,31 +568,24 @@
             pendingAttackLines = 0;
         }
 
-        // 💡 壁際での回転を補正する処理（簡易ウォールキック）
         function rotatePiece() {
+            if (isCountingDown) return;
             const r = currentPiece.shape.length; const c = currentPiece.shape[0].length;
             const rotated = Array.from({ length: c }, () => Array(r).fill(0));
             for (let i = 0; i < r; i++) {
                 for (let j = 0; j < c; j++) { rotated[j][r - 1 - i] = currentPiece.shape[i][j]; }
             }
-            
-            // 補正パターンの検証（その場 → 1マス左にずらす → 1マス右にずらす）
             const offsets = [0, -1, 1, -2, 2];
             for (let offset of offsets) {
                 if (!checkCollision(currentPiece.x + offset, currentPiece.y, rotated)) {
-                    currentPiece.x += offset;
-                    currentPiece.shape = rotated;
-                    sendState();
-                    break;
+                    currentPiece.x += offset; currentPiece.shape = rotated; sendState(); break;
                 }
             }
         }
 
-        // 💡 一気に真下まで落とすハードドロップ処理
         function hardDrop() {
-            while (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) {
-                currentPiece.y++;
-            }
+            if (isCountingDown) return;
+            while (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) { currentPiece.y++; }
             lockAndProceed();
         }
 
@@ -522,8 +597,12 @@
         }
 
         function endGame(isWin) {
-            if (!gameInterval) return; 
-            clearInterval(gameInterval); gameInterval = null;
+            isCountingDown = false;
+            if (gameInterval) { clearInterval(gameInterval); gameInterval = null; }
+
+            // カウントダウン表示が出ていれば強制非表示
+            document.getElementById('local-countdown').style.display = 'none';
+            document.getElementById('remote-countdown').style.display = 'none';
 
             const localResultEl = document.getElementById('local-result');
             const remoteResultEl = document.getElementById('remote-result');
@@ -554,7 +633,10 @@
             drawGrid(localCtx); drawGrid(remoteCtx);
             drawField(localCtx, localField); drawField(remoteCtx, remoteField);
 
-            if (gameInterval) drawPiece(localCtx, currentPiece);
+            // カウントダウン中（gameIntervalがない状態）でも空のフィールドや初期状態を描画できるようにする
+            if (gameInterval || isCountingDown) {
+                if (currentPiece.colorId) drawPiece(localCtx, currentPiece);
+            }
             if (remotePiece) drawPiece(remoteCtx, remotePiece);
             if (localHoldId) drawHold(localHoldCtx, localHoldId);
             if (remoteHoldId) drawHold(remoteHoldCtx, remoteHoldId);
@@ -579,6 +661,7 @@
         }
 
         function drawPiece(ctx, piece) {
+            if(!piece.shape || !piece.shape.length) return;
             ctx.fillStyle = COLORS[piece.colorId];
             for (let r = 0; r < piece.shape.length; r++) {
                 for (let c = 0; c < piece.shape[r].length; c++) {
@@ -596,7 +679,8 @@
         }
 
         window.addEventListener('keydown', (e) => {
-            if (!gameInterval) return; 
+            // 💡 カウントダウン中またはゲーム終了時は操作を完全に無効化
+            if (!gameInterval || isCountingDown) return; 
             if (e.key === 'ArrowLeft' && !checkCollision(currentPiece.x - 1, currentPiece.y, currentPiece.shape)) {
                 currentPiece.x--; sendState(); e.preventDefault();
             } else if (e.key === 'ArrowRight' && !checkCollision(currentPiece.x + 1, currentPiece.y, currentPiece.shape)) {
@@ -604,12 +688,10 @@
             } else if (e.key === 'ArrowDown' && !checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) {
                 currentPiece.y++; sendState(); e.preventDefault();
             } else if (e.key === 'ArrowUp' || e.key === ' ') {
-                // 💡 上矢印キー、またはスペースキーで回転
                 rotatePiece(); e.preventDefault();
             } else if (e.key === 'Shift') {
                 holdPiece(); e.preventDefault();
             } else if (e.key === 'Enter') {
-                // 💡 Enterキーでハードドロップ（一気に落とす）
                 hardDrop(); e.preventDefault();
             }
         });
