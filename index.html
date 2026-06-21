@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>P2P オンライン対戦テトリス (完全統合版)</title>
+    <title>P2P オンライン対戦テトリス</title>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body style="font-family: sans-serif; padding: 20px; background: #f0f2f5; user-select: none;">
@@ -25,19 +25,43 @@
     </div>
 
     <div style="display: flex; gap: 40px; justify-content: center; margin-bottom: 20px;">
-        <div style="text-align: center;">
+        
+        <div style="text-align: center; position: relative;">
             <h2 id="local-name">あなた (PLAYER 1)</h2>
-            <canvas id="local-canvas" width="300" height="600" style="border: 2px solid #333; background: #111;"></canvas>
-            <p style="color: #666; font-size: 14px;">操作: 矢印キー（左右下: 移動 / 上: 回転）</p>
+            <div style="display: flex; gap: 10px; justify-content: center; position: relative;">
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <div style="background: #fff; border: 1px solid #ccc; padding: 5px; border-radius: 5px; width: 90px;">
+                        <div style="font-size: 12px; font-weight: bold; color: #666; margin-bottom: 5px;">HOLD</div>
+                        <canvas id="local-hold-canvas" width="90" height="90" style="background: #111; border: 1px solid #333;"></canvas>
+                    </div>
+                </div>
+                <div style="position: relative; width: 300px; height: 600px;">
+                    <canvas id="local-canvas" width="300" height="600" style="border: 2px solid #333; background: #111;"></canvas>
+                    <div id="local-result" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); color: #fff; font-size: 40px; font-weight: bold; line-height: 600px; text-align: center; z-index: 10;"></div>
+                </div>
+            </div>
+            <p style="color: #666; font-size: 14px; margin-top: 5px;">操作: 左右下（移動）/ 上（回転）/ <strong>Shift（ホールド）</strong></p>
         </div>
-        <div style="text-align: center;">
+
+        <div style="text-align: center; position: relative;">
             <h2 id="remote-name">あいて (PLAYER 2)</h2>
-            <canvas id="remote-canvas" width="300" height="600" style="border: 2px solid #333; background: #111;"></canvas>
-            <p style="color: #666; font-size: 14px;">相手の盤面がリアルタイムに同期されます</p>
+            <div style="display: flex; gap: 10px; justify-content: center; position: relative;">
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <div style="background: #fff; border: 1px solid #ccc; padding: 5px; border-radius: 5px; width: 90px;">
+                        <div style="font-size: 12px; font-weight: bold; color: #666; margin-bottom: 5px;">HOLD</div>
+                        <canvas id="remote-hold-canvas" width="90" height="90" style="background: #111; border: 1px solid #333;"></canvas>
+                    </div>
+                </div>
+                <div style="position: relative; width: 300px; height: 600px;">
+                    <canvas id="remote-canvas" width="300" height="600" style="border: 2px solid #333; background: #111;"></canvas>
+                    <div id="remote-result" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); color: #fff; font-size: 40px; font-weight: bold; line-height: 600px; text-align: center; z-index: 10;"></div>
+                </div>
+            </div>
+            <p style="color: #666; font-size: 14px; margin-top: 5px;">2列以上消すと相手にお邪魔ブロックを送れます！</p>
         </div>
     </div>
 
-    <div style="background: #222; color: #0f0; padding: 15px; border-radius: 5px; font-family: monospace; max-height: 180px; overflow-y: auto;">
+    <div style="background: #222; color: #0f0; padding: 15px; border-radius: 5px; font-family: monospace; max-height: 100px; overflow-y: auto;">
         <h3>🛠️ システムデバッグログ</h3>
         <div id="debug-log"></div>
     </div>
@@ -46,195 +70,150 @@
         // ==========================================
         // 🌐 1. P2P 通信設定・マッチングロジック
         // ==========================================
-        let peer = null;
-        let conn = null;
+        let peer = null; let conn = null;
         const statusEl = document.getElementById('connection-status');
         const logEl = document.getElementById('debug-log');
         const ROOM_PREFIX = "github-tetris-room-";
 
         function printLog(msg, isError = false) {
             const time = new Date().toLocaleTimeString();
-            const color = isError ? 'red' : '#0f0';
-            logEl.innerHTML += `<div style="color: ${color}">[${time}] ${msg}</div>`;
+            logEl.innerHTML += `<div style="color: ${isError ? 'red' : '#0f0'}">[${time}] ${msg}</div>`;
             logEl.scrollTop = logEl.scrollHeight;
-            console.log(`[${time}] ${msg}`);
         }
 
-        // ① 部屋を作る（ホスト）
         document.getElementById('make-room-btn').addEventListener('click', () => {
             const roomId = document.getElementById('room-id-input').value;
             if (!roomId) return alert("部屋番号を入力してください");
-
             statusEl.textContent = "部屋を開設中...";
-            printLog(`PeerJSサーバーに接続中... (部屋ID: ${ROOM_PREFIX + roomId})`);
-            
             peer = new Peer(ROOM_PREFIX + roomId, { debug: 3 });
-
-            peer.on('open', (id) => {
-                statusEl.textContent = `部屋 ${roomId} で待機中...`;
-                statusEl.style.color = "orange";
-                printLog(`部屋の開設に成功しました！相手の接続を待っています...`);
-                
-                const myName = document.getElementById('player-name-input').value;
-                document.getElementById('local-name').textContent = myName + " (あなた)";
+            peer.on('open', () => {
+                statusEl.textContent = `部屋 ${roomId} で待機中...`; statusEl.style.color = "orange";
+                printLog(`部屋を開設しました。相手の接続を待っています...`);
+                document.getElementById('local-name').textContent = document.getElementById('player-name-input').value + " (あなた)";
             });
-
-            peer.on('error', (err) => {
-                statusEl.textContent = "エラー発生";
-                statusEl.style.color = "red";
-                printLog(`【エラー】種類: ${err.type} / メッセージ: ${err.message}`, true);
-            });
-
-            peer.on('connection', (connection) => {
-                conn = connection;
-                printLog(`相手からの接続要求を検知しました！`);
-                setupConnection();
-            });
+            peer.on('error', (err) => { statusEl.textContent = "エラー発生"; printLog(`エラー: ${err.message}`, true); });
+            peer.on('connection', (connection) => { conn = connection; setupConnection(); });
         });
 
-        // ② 部屋に入る（ゲスト）
         document.getElementById('join-room-btn').addEventListener('click', () => {
             const roomId = document.getElementById('room-id-input').value;
             if (!roomId) return alert("部屋番号を入力してください");
-
             statusEl.textContent = "接続中...";
-            printLog(`一時IDを発行して部屋 ${roomId} へ接続を開始します...`);
-            
             peer = new Peer({ debug: 3 });
-
             peer.on('open', () => {
-                const myName = document.getElementById('player-name-input').value;
-                document.getElementById('local-name').textContent = myName + " (あなた)";
-
+                document.getElementById('local-name').textContent = document.getElementById('player-name-input').value + " (あなた)";
                 conn = peer.connect(ROOM_PREFIX + roomId);
                 setupConnection();
             });
-
-            peer.on('error', (err) => {
-                statusEl.textContent = "エラー発生";
-                statusEl.style.color = "red";
-                printLog(`【エラー】種類: ${err.type} / メッセージ: ${err.message}`, true);
-            });
+            peer.on('error', (err) => { statusEl.textContent = "エラー発生"; printLog(`エラー: ${err.message}`, true); });
         });
 
-        // P2P 接続確立後のイベントハンドリング
         function setupConnection() {
             conn.on('open', () => {
-                statusEl.textContent = "対戦接続完了！";
-                statusEl.style.color = "green";
-                printLog(`P2Pデータチャネルが開きました！ゲームを開始します。`);
-                
-                const myName = document.getElementById('player-name-input').value;
-                conn.send({ type: 'NAME', name: myName });
-
-                // ゲーム開始
+                statusEl.textContent = "対戦接続完了！"; statusEl.style.color = "green";
+                printLog(`対戦開始！`);
+                conn.send({ type: 'NAME', name: document.getElementById('player-name-input').value });
                 startGame();
             });
 
             conn.on('data', (data) => {
-                // 受信データごとの分岐処理
                 if (data.type === 'NAME') {
                     document.getElementById('remote-name').textContent = data.name + " (あいて)";
                     if (peer.id.startsWith(ROOM_PREFIX)) { 
-                        const myName = document.getElementById('player-name-input').value;
-                        conn.send({ type: 'NAME', name: myName });
+                        conn.send({ type: 'NAME', name: document.getElementById('player-name-input').value });
                     }
                 }
-
-                // 相手の盤面データを受け取って更新
-                if (data.type === 'FIELD_UPDATE') {
-                    remoteField = data.field;
-                    draw(); 
+                if (data.type === 'GAME_STATE') {
+                    remoteField = data.field; remotePiece = data.piece; remoteHoldId = data.holdId; draw(); 
                 }
-
-                // 相手がゲームオーバーになった
+                // 💡 お邪魔ブロックの受信処理
+                if (data.type === 'ATTACK') {
+                    receiveAttack(data.lines);
+                }
+                // 💡 相手がゲームオーバー＝自分の勝ち判定
                 if (data.type === 'GAMEOVER') {
-                    printLog("🎉 相手がゲームオーバーになりました。あなたの勝ちです！");
-                    clearInterval(gameInterval);
-                    gameInterval = null;
+                    endGame(true);
                 }
             });
 
             conn.on('close', () => {
-                statusEl.textContent = "切断されました";
-                statusEl.style.color = "red";
-                printLog(`接続が終了しました。`);
-                document.getElementById('remote-name').textContent = "あいて (PLAYER 2)";
-                if (gameInterval) {
-                    clearInterval(gameInterval);
-                    gameInterval = null;
-                }
+                statusEl.textContent = "切断されました"; statusEl.style.color = "red";
+                if (gameInterval) { clearInterval(gameInterval); gameInterval = null; }
             });
         }
-
 
         // ==========================================
         // 🕹️ 2. テトリス ゲームロジック
         // ==========================================
-        const COLS = 10;
-        const ROWS = 20;
-        const BLOCK_SIZE = 30;
-
-        const localCanvas = document.getElementById('local-canvas');
-        const localCtx = localCanvas.getContext('2d');
-        const remoteCanvas = document.getElementById('remote-canvas');
-        const remoteCtx = remoteCanvas.getContext('2d');
+        const COLS = 10; const ROWS = 20; const BLOCK_SIZE = 30;
+        const localCanvas = document.getElementById('local-canvas'); const localCtx = localCanvas.getContext('2d');
+        const remoteCanvas = document.getElementById('remote-canvas'); const remoteCtx = remoteCanvas.getContext('2d');
+        const localHoldCanvas = document.getElementById('local-hold-canvas'); const localHoldCtx = localHoldCanvas.getContext('2d');
+        const remoteHoldCanvas = document.getElementById('remote-hold-canvas'); const remoteHoldCtx = remoteHoldCanvas.getContext('2d');
 
         let localField = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
         let remoteField = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
 
-        // 7種類のテトリミノ（ブロック形状）定義
         const SHAPES = {
-            1: [[1, 1, 1, 1]], // I
-            2: [[2, 2], [2, 2]], // O
-            3: [[0, 3, 0], [3, 3, 3]], // T
-            4: [[4, 4, 0], [0, 4, 4]], // Z
-            5: [[0, 5, 5], [5, 5, 0]], // S
-            6: [[6, 0, 0], [6, 6, 6]], // J
-            7: [[0, 0, 7], [7, 7, 7]]  // L
+            1: [[1, 1, 1, 1]], 2: [[2, 2], [2, 2]], 3: [[0, 3, 0], [3, 3, 3]],
+            4: [[4, 4, 0], [0, 4, 4]], 5: [[0, 5, 5], [5, 5, 0]], 6: [[6, 0, 0], [6, 6, 6]], 7: [[0, 0, 7], [7, 7, 7]]
         };
-        const COLORS = [
-            null, 
-            '#00f0f0', '#f0f000', '#a000f0', 
-            '#f00000', '#00f000', '#0000f0', '#f0a000'
-        ];
+        // 8番目の色は攻撃用のグレー（お邪魔ブロック）
+        const COLORS = [null, '#00f0f0', '#f0f000', '#a000f0', '#f00000', '#00f000', '#0000f0', '#f0a000', '#777777'];
 
         let currentPiece = { shape: [], colorId: 0, x: 0, y: 0 };
+        let remotePiece = null; let localHoldId = null; let remoteHoldId = null; let hasHeld = false;
         let gameInterval = null;
+        let pendingAttackLines = 0; // 保留中のお邪魔ブロックの数
 
         function startGame() {
             localField = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
             remoteField = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
-            spawnPiece();
+            localHoldId = null; remoteHoldId = null; remotePiece = null; hasHeld = false; pendingAttackLines = 0;
             
+            document.getElementById('local-result').style.display = 'none';
+            document.getElementById('remote-result').style.display = 'none';
+
+            spawnPiece();
             if (gameInterval) clearInterval(gameInterval);
-            gameInterval = setInterval(gameLoop, 800); // 0.8秒ごとに自然落下
-            draw();
+            gameInterval = setInterval(gameLoop, 800);
+            sendState();
         }
 
         function spawnPiece() {
+            // お邪魔ブロックをせり上げるタイミング（新しいミノが出る直前）
+            if (pendingAttackLines > 0) {
+                riseAttackBlocks();
+            }
+
             const id = Math.floor(Math.random() * 7) + 1;
-            currentPiece.shape = SHAPES[id];
-            currentPiece.colorId = id;
-            currentPiece.x = Math.floor((COLS - currentPiece.shape[0].length) / 2);
-            currentPiece.y = 0;
+            currentPiece.shape = SHAPES[id]; currentPiece.colorId = id;
+            currentPiece.x = Math.floor((COLS - currentPiece.shape[0].length) / 2); currentPiece.y = 0;
+            hasHeld = false; 
 
             if (checkCollision(currentPiece.x, currentPiece.y, currentPiece.shape)) {
-                printLog("💀 あなたはゲームオーバーになりました...", true);
-                clearInterval(gameInterval);
-                gameInterval = null;
-                if (conn && conn.open) {
-                    conn.send({ type: 'GAMEOVER' });
-                }
+                endGame(false); // 自分が詰まったので負け
             }
+        }
+
+        function holdPiece() {
+            if (hasHeld || !gameInterval) return;
+            const currentId = currentPiece.colorId;
+            if (localHoldId === null) {
+                localHoldId = currentId; spawnPiece();
+            } else {
+                const temp = localHoldId; localHoldId = currentId;
+                currentPiece.shape = SHAPES[temp]; currentPiece.colorId = temp;
+                currentPiece.x = Math.floor((COLS - currentPiece.shape[0].length) / 2); currentPiece.y = 0;
+            }
+            hasHeld = true; sendState();
         }
 
         function checkCollision(nx, ny, shape) {
             for (let r = 0; r < shape.length; r++) {
                 for (let c = 0; c < shape[r].length; c++) {
                     if (shape[r][c]) {
-                        let targetX = nx + c;
-                        let targetY = ny + r;
+                        let targetX = nx + c; let targetY = ny + r;
                         if (targetX < 0 || targetX >= COLS || targetY >= ROWS) return true;
                         if (targetY >= 0 && localField[targetY][targetX]) return true;
                     }
@@ -246,55 +225,109 @@
         function gameLoop() {
             if (!gameInterval) return;
             if (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) {
-                currentPiece.y++;
+                currentPiece.y++; sendState();
             } else {
                 lockPiece();
                 clearLines();
-                spawnPiece();
-                
-                // 盤面が確定したら相手にデータを送信
-                if (conn && conn.open) {
-                    conn.send({ type: 'FIELD_UPDATE', field: localField });
-                }
+                spawnPiece(); sendState();
             }
-            draw();
         }
 
         function lockPiece() {
             for (let r = 0; r < currentPiece.shape.length; r++) {
                 for (let c = 0; c < currentPiece.shape[r].length; c++) {
-                    if (currentPiece.shape[r][c]) {
-                        if (currentPiece.y + r >= 0) {
-                            localField[currentPiece.y + r][currentPiece.x + c] = currentPiece.colorId;
-                        }
+                    if (currentPiece.shape[r][c] && currentPiece.y + r >= 0) {
+                        localField[currentPiece.y + r][currentPiece.x + c] = currentPiece.colorId;
                     }
                 }
             }
         }
 
+        // 💡 ライン消去＆攻撃送信処理
         function clearLines() {
+            let cleared = 0;
             for (let r = ROWS - 1; r >= 0; r--) {
                 if (localField[r].every(v => v > 0)) {
-                    localField.splice(r, 1);
-                    localField.unshift(Array(COLS).fill(0));
-                    r++; 
+                    localField.splice(r, 1); localField.unshift(Array(COLS).fill(0));
+                    cleared++; r++; 
+                }
+            }
+            
+            if (cleared >= 2) {
+                let attackLines = cleared - 1; // 2列消し=1列攻撃、3列消し=2列攻撃、4列消し=3列攻撃
+                // 💡 カウンター（相殺）システム：お邪魔が溜まっていれば、まずそれを減らす
+                if (pendingAttackLines > 0) {
+                    if (attackLines >= pendingAttackLines) {
+                        attackLines -= pendingAttackLines; pendingAttackLines = 0;
+                    } else {
+                        pendingAttackLines -= attackLines; attackLines = 0;
+                    }
+                }
+                // 相殺しきれなかった攻撃分を相手に送信
+                if (attackLines > 0 && conn && conn.open) {
+                    conn.send({ type: 'ATTACK', lines: attackLines });
+                    printLog(`🚀 相手に ${attackLines} 列の攻撃を送りました！`);
                 }
             }
         }
 
-        // ブロックの回転処理（二次元配列の90度回転）
+        // お邪魔を受け取る（ストックに貯める）
+        function receiveAttack(lines) {
+            pendingAttackLines += lines;
+            printLog(`⚠️ お邪魔ブロックが下から ${lines} 列迫っています！`, true);
+        }
+
+        // 実際にお邪魔ブロックを下からせり上げる処理
+        function riseAttackBlocks() {
+            for (let i = 0; i < pendingAttackLines; i++) {
+                localField.shift(); // 一番上の行を削除
+                // 1マスだけ穴の空いたグレーの行（色コード8）を生成
+                let attackRow = Array(COLS).fill(8);
+                let holeIndex = Math.floor(Math.random() * COLS);
+                attackRow[holeIndex] = 0;
+                localField.push(attackRow);
+            }
+            pendingAttackLines = 0;
+        }
+
         function rotatePiece() {
-            const r = currentPiece.shape.length;
-            const c = currentPiece.shape[0].length;
+            const r = currentPiece.shape.length; const c = currentPiece.shape[0].length;
             const rotated = Array.from({ length: c }, () => Array(r).fill(0));
             for (let i = 0; i < r; i++) {
-                for (let j = 0; j < c; j++) {
-                    rotated[j][r - 1 - i] = currentPiece.shape[i][j];
-                }
+                for (let j = 0; j < c; j++) { rotated[j][r - 1 - i] = currentPiece.shape[i][j]; }
             }
-            if (!checkCollision(currentPiece.x, currentPiece.y, rotated)) {
-                currentPiece.shape = rotated;
+            if (!checkCollision(currentPiece.x, currentPiece.y, rotated)) { currentPiece.shape = rotated; sendState(); }
+        }
+
+        function sendState() {
+            if (conn && conn.open) {
+                conn.send({ type: 'GAME_STATE', field: localField, piece: currentPiece, holdId: localHoldId });
             }
+            draw();
+        }
+
+        // 💡 勝ち負けが確定した時のゲーム終了処理
+        function endGame(isWin) {
+            if (!gameInterval) return; // 既に終わってたら何もしない
+            clearInterval(gameInterval);
+            gameInterval = null;
+
+            const localResultEl = document.getElementById('local-result');
+            const remoteResultEl = document.getElementById('remote-result');
+
+            if (isWin) {
+                localResultEl.textContent = "WIN"; localResultEl.style.color = "#00ff00";
+                remoteResultEl.textContent = "LOSE"; remoteResultEl.style.color = "#ff0000";
+                printLog("🏆 あなたの勝ちです！");
+            } else {
+                localResultEl.textContent = "LOSE"; localResultEl.style.color = "#ff0000";
+                remoteResultEl.textContent = "WIN"; remoteResultEl.style.color = "#00ff00";
+                printLog("💀 あなたの負けです...", true);
+                if (conn && conn.open) conn.send({ type: 'GAMEOVER' });
+            }
+
+            localResultEl.style.display = 'block';
+            remoteResultEl.style.display = 'block';
         }
 
         // ==========================================
@@ -303,28 +336,22 @@
         function draw() {
             localCtx.clearRect(0, 0, localCanvas.width, localCanvas.height);
             remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
+            localHoldCtx.clearRect(0, 0, localHoldCanvas.width, localHoldCanvas.height);
+            remoteHoldCtx.clearRect(0, 0, remoteHoldCanvas.width, remoteHoldCanvas.height);
 
-            // グリッド背景の描画
-            drawGrid(localCtx);
-            drawGrid(remoteCtx);
+            drawGrid(localCtx); drawGrid(remoteCtx);
+            drawField(localCtx, localField); drawField(remoteCtx, remoteField);
 
-            // フィールドブロックの描画
-            drawField(localCtx, localField);
-            drawField(remoteCtx, remoteField);
-
-            // 自分の操作中ミノの描画
-            if (gameInterval) {
-                drawPiece(localCtx, currentPiece);
-            }
+            if (gameInterval) drawPiece(localCtx, currentPiece);
+            if (remotePiece) drawPiece(remoteCtx, remotePiece);
+            if (localHoldId) drawHold(localHoldCtx, localHoldId);
+            if (remoteHoldId) drawHold(remoteHoldCtx, remoteHoldId);
         }
 
         function drawGrid(ctx) {
-            ctx.strokeStyle = '#222';
-            ctx.lineWidth = 1;
+            ctx.strokeStyle = '#222'; ctx.lineWidth = 1;
             for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c < COLS; c++) {
-                    ctx.strokeRect(c * BLOCK_SIZE, r * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-                }
+                for (let c = 0; c < COLS; c++) { ctx.strokeRect(c * BLOCK_SIZE, r * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE); }
             }
         }
 
@@ -343,31 +370,32 @@
             ctx.fillStyle = COLORS[piece.colorId];
             for (let r = 0; r < piece.shape.length; r++) {
                 for (let c = 0; c < piece.shape[r].length; c++) {
-                    if (piece.shape[r][c]) {
-                        ctx.fillRect((piece.x + c) * BLOCK_SIZE + 1, (piece.y + r) * BLOCK_SIZE + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2);
-                    }
+                    if (piece.shape[r][c]) { ctx.fillRect((piece.x + c) * BLOCK_SIZE + 1, (piece.y + r) * BLOCK_SIZE + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2); }
                 }
             }
         }
 
-        // キーボード入力イベント
+        function drawHold(ctx, id) {
+            ctx.fillStyle = COLORS[id]; const shape = SHAPES[id];
+            const offsetX = (90 - shape[0].length * 20) / 2; const offsetY = (90 - shape.length * 20) / 2;
+            for (let r = 0; r < shape.length; r++) {
+                for (let c = 0; c < shape[r].length; c++) { if (shape[r][c]) ctx.fillRect(offsetX + c * 20, offsetY + r * 20, 18, 18); }
+            }
+        }
+
         window.addEventListener('keydown', (e) => {
             if (!gameInterval) return; 
-            
             if (e.key === 'ArrowLeft' && !checkCollision(currentPiece.x - 1, currentPiece.y, currentPiece.shape)) {
-                currentPiece.x--;
-                e.preventDefault();
+                currentPiece.x--; sendState(); e.preventDefault();
             } else if (e.key === 'ArrowRight' && !checkCollision(currentPiece.x + 1, currentPiece.y, currentPiece.shape)) {
-                currentPiece.x++;
-                e.preventDefault();
+                currentPiece.x++; sendState(); e.preventDefault();
             } else if (e.key === 'ArrowDown' && !checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) {
-                currentPiece.y++;
-                e.preventDefault();
+                currentPiece.y++; sendState(); e.preventDefault();
             } else if (e.key === 'ArrowUp') {
-                rotatePiece();
-                e.preventDefault();
+                rotatePiece(); e.preventDefault();
+            } else if (e.key === 'Shift') {
+                holdPiece(); e.preventDefault();
             }
-            draw();
         });
     </script>
 </body>
