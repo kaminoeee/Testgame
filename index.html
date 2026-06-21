@@ -2,67 +2,256 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>P2P オンライン対戦テトリス</title>
+    <title>P2P オンライン対戦テトリス (完全版)</title>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --panel-bg: #1e293b;
+            --accent-color: #38bdf8;
+            --text-color: #f8fafc;
+            --border-color: #334155;
+        }
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        h1 {
+            color: var(--accent-color);
+            margin-bottom: 20px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+        /* ロビー画面のスタイル */
+        #lobby-view {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 30px;
+            width: 100%;
+            max-width: 450px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            box-sizing: border-box;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        .input-group label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #94a3b8;
+            font-size: 14px;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 12px;
+            background: #0f172a;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: #fff;
+            font-size: 16px;
+            box-sizing: border-box;
+            transition: border 0.2s;
+        }
+        .input-group input:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+        .btn-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 25px;
+        }
+        button {
+            padding: 12px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        #make-room-btn { background: #0ea5e9; color: white; }
+        #make-room-btn:hover { background: #38bdf8; }
+        #join-room-btn { background: #10b981; color: white; }
+        #join-room-btn:hover { background: #34d399; }
+        #back-to-lobby-btn { background: #ef4444; color: white; margin-top: 20px; display: none; }
+        
+        #status-bar {
+            text-align: center;
+            font-weight: bold;
+            margin-top: 15px;
+            color: #cbd5e1;
+        }
+
+        /* ゲーム画面のスタイル */
+        #game-view {
+            display: none; /* 最初は非表示 */
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+        }
+        .game-container {
+            display: flex;
+            gap: 40px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .player-area {
+            text-align: center;
+        }
+        .player-area h2 {
+            font-size: 20px;
+            margin-bottom: 15px;
+            color: #e2e8f0;
+        }
+        .board-wrapper {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+        .side-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .hold-box {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            padding: 10px;
+            border-radius: 8px;
+            width: 90px;
+        }
+        .hold-title {
+            font-size: 12px;
+            font-weight: bold;
+            color: #94a3b8;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+        .main-canvas-container {
+            position: relative;
+            width: 300px;
+            height: 600px;
+        }
+        canvas {
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .result-screen {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(4px);
+            color: #fff;
+            font-size: 48px;
+            font-weight: 900;
+            line-height: 600px;
+            text-align: center;
+            z-index: 10;
+            border-radius: 8px;
+            letter-spacing: 2px;
+        }
+        .controls-hint {
+            color: #64748b;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        /* デバッグログ */
+        #debug-panel {
+            background: #020617;
+            border: 1px solid var(--border-color);
+            color: #4ade80;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            max-height: 100px;
+            overflow-y: auto;
+            width: 100%;
+            max-width: 800px;
+            margin-top: 30px;
+            font-size: 13px;
+            box-sizing: border-box;
+        }
+    </style>
 </head>
-<body style="font-family: sans-serif; padding: 20px; background: #f0f2f5; user-select: none;">
+<body>
 
-    <h1>P2P オンライン対戦テトリス</h1>
+    <h1>P2P BATTLE TETRIS</h1>
 
-    <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ccc; background: #fff; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-        <div style="margin-bottom: 10px;">
-            <label><strong>あなたの名前: </strong></label>
-            <input type="text" id="player-name-input" value="プレイヤー" style="padding: 5px; font-size: 16px; width: 150px;">
+    <div id="lobby-view">
+        <div class="input-group">
+            <label>あなたの名前</label>
+            <input type="text" id="player-name-input" value="プレイヤー">
         </div>
-        
-        <div>
-            <label><strong>部屋番号: </strong></label>
-            <input type="text" id="room-id-input" placeholder="例: 1234" style="padding: 5px; font-size: 16px; width: 100px;">
-            <button id="make-room-btn" style="padding: 5px 10px; font-size: 16px; margin-left: 10px;">① 部屋を作る</button>
-            <button id="join-room-btn" style="padding: 5px 10px; font-size: 16px;">② 部屋に入る</button>
-            <span id="connection-status" style="margin-left: 15px; font-weight: bold; color: #ff0000;">未接続</span>
+        <div class="input-group">
+            <label>部屋番号 (4桁の数字など)</label>
+            <input type="text" id="room-id-input" placeholder="例: 1234">
         </div>
+        <div class="btn-container">
+            <button id="make-room-btn">部屋を作る</button>
+            <button id="join-room-btn">部屋に入る</button>
+        </div>
+        <div id="status-bar">未接続</div>
     </div>
 
-    <div style="display: flex; gap: 40px; justify-content: center; margin-bottom: 20px;">
-        
-        <div style="text-align: center; position: relative;">
-            <h2 id="local-name">あなた (PLAYER 1)</h2>
-            <div style="display: flex; gap: 10px; justify-content: center; position: relative;">
-                <div style="display: flex; flex-direction: column; gap: 10px;">
-                    <div style="background: #fff; border: 1px solid #ccc; padding: 5px; border-radius: 5px; width: 90px;">
-                        <div style="font-size: 12px; font-weight: bold; color: #666; margin-bottom: 5px;">HOLD</div>
-                        <canvas id="local-hold-canvas" width="90" height="90" style="background: #111; border: 1px solid #333;"></canvas>
+    <div id="game-view">
+        <div class="game-container">
+            <div class="player-area">
+                <h2 id="local-name">あなた</h2>
+                <div class="board-wrapper">
+                    <div class="side-panel">
+                        <div class="hold-box">
+                            <div class="hold-title">HOLD</div>
+                            <canvas id="local-hold-canvas" width="90" height="90" style="background: #020617; border: 1px solid var(--border-color);"></canvas>
+                        </div>
+                    </div>
+                    <div class="main-canvas-container">
+                        <canvas id="local-canvas" width="300" height="600" style="border: 2px solid var(--border-color); background: #020617;"></canvas>
+                        <div id="local-result" class="result-screen"></div>
                     </div>
                 </div>
-                <div style="position: relative; width: 300px; height: 600px;">
-                    <canvas id="local-canvas" width="300" height="600" style="border: 2px solid #333; background: #111;"></canvas>
-                    <div id="local-result" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); color: #fff; font-size: 40px; font-weight: bold; line-height: 600px; text-align: center; z-index: 10;"></div>
-                </div>
+                <p class="controls-hint">操作: 左右下（移動）/ 上（回転）/ Shift（ホールド）</p>
             </div>
-            <p style="color: #666; font-size: 14px; margin-top: 5px;">操作: 左右下（移動）/ 上（回転）/ <strong>Shift（ホールド）</strong></p>
+
+            <div class="player-area">
+                <h2 id="remote-name">あいて</h2>
+                <div class="board-wrapper">
+                    <div class="side-panel">
+                        <div class="hold-box">
+                            <div class="hold-title">HOLD</div>
+                            <canvas id="remote-hold-canvas" width="90" height="90" style="background: #020617; border: 1px solid var(--border-color);"></canvas>
+                        </div>
+                    </div>
+                    <div class="main-canvas-container">
+                        <canvas id="remote-canvas" width="300" height="600" style="border: 2px solid var(--border-color); background: #020617;"></canvas>
+                        <div id="remote-result" class="result-screen"></div>
+                    </div>
+                </div>
+                <p class="controls-hint">2列以上消しで相手にお邪魔ブロック攻撃！</p>
+            </div>
         </div>
 
-        <div style="text-align: center; position: relative;">
-            <h2 id="remote-name">あいて (PLAYER 2)</h2>
-            <div style="display: flex; gap: 10px; justify-content: center; position: relative;">
-                <div style="display: flex; flex-direction: column; gap: 10px;">
-                    <div style="background: #fff; border: 1px solid #ccc; padding: 5px; border-radius: 5px; width: 90px;">
-                        <div style="font-size: 12px; font-weight: bold; color: #666; margin-bottom: 5px;">HOLD</div>
-                        <canvas id="remote-hold-canvas" width="90" height="90" style="background: #111; border: 1px solid #333;"></canvas>
-                    </div>
-                </div>
-                <div style="position: relative; width: 300px; height: 600px;">
-                    <canvas id="remote-canvas" width="300" height="600" style="border: 2px solid #333; background: #111;"></canvas>
-                    <div id="remote-result" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); color: #fff; font-size: 40px; font-weight: bold; line-height: 600px; text-align: center; z-index: 10;"></div>
-                </div>
-            </div>
-            <p style="color: #666; font-size: 14px; margin-top: 5px;">2列以上消すと相手にお邪魔ブロックを送れます！</p>
-        </div>
+        <button id="back-to-lobby-btn">ロビーに戻る</button>
     </div>
 
-    <div style="background: #222; color: #0f0; padding: 15px; border-radius: 5px; font-family: monospace; max-height: 100px; overflow-y: auto;">
-        <h3>🛠️ システムデバッグログ</h3>
+    <div id="debug-panel">
+        <div style="font-weight: bold; color: #94a3b8; margin-bottom: 5px;">💻 SYSTEM LOG:</div>
         <div id="debug-log"></div>
     </div>
 
@@ -71,34 +260,53 @@
         // 🌐 1. P2P 通信設定・マッチングロジック
         // ==========================================
         let peer = null; let conn = null;
-        const statusEl = document.getElementById('connection-status');
+        const statusEl = document.getElementById('status-bar');
         const logEl = document.getElementById('debug-log');
+        const lobbyView = document.getElementById('lobby-view');
+        const gameView = document.getElementById('game-view');
+        const backToLobbyBtn = document.getElementById('back-to-lobby-btn');
         const ROOM_PREFIX = "github-tetris-room-";
 
         function printLog(msg, isError = false) {
             const time = new Date().toLocaleTimeString();
-            logEl.innerHTML += `<div style="color: ${isError ? 'red' : '#0f0'}">[${time}] ${msg}</div>`;
-            logEl.scrollTop = logEl.scrollHeight;
+            logEl.innerHTML += `<div style="color: ${isError ? '#f87171' : '#4ade80'}">[${time}] ${msg}</div>`;
+            logEl.parentNode.scrollTop = logEl.parentNode.scrollHeight;
         }
 
+        // 画面の表示切り替え関数
+        function switchView(toGame) {
+            if (toGame) {
+                lobbyView.style.display = 'none';
+                gameView.style.display = 'flex';
+                backToLobbyBtn.style.display = 'none'; // 試合中は隠す
+            } else {
+                lobbyView.style.display = 'block';
+                gameView.style.display = 'none';
+                statusEl.textContent = "未接続";
+                statusEl.style.color = "#cbd5e1";
+            }
+        }
+
+        // ① 部屋を作る（ホスト）
         document.getElementById('make-room-btn').addEventListener('click', () => {
             const roomId = document.getElementById('room-id-input').value;
             if (!roomId) return alert("部屋番号を入力してください");
-            statusEl.textContent = "部屋を開設中...";
+            statusEl.textContent = "部屋を開設中..."; statusEl.style.color = "#eab308";
             peer = new Peer(ROOM_PREFIX + roomId, { debug: 3 });
             peer.on('open', () => {
-                statusEl.textContent = `部屋 ${roomId} で待機中...`; statusEl.style.color = "orange";
-                printLog(`部屋を開設しました。相手の接続を待っています...`);
+                statusEl.textContent = `部屋 ${roomId} で待機中...`;
+                printLog(`部屋を開設しました。対戦相手を待っています...`);
                 document.getElementById('local-name').textContent = document.getElementById('player-name-input').value + " (あなた)";
             });
             peer.on('error', (err) => { statusEl.textContent = "エラー発生"; printLog(`エラー: ${err.message}`, true); });
             peer.on('connection', (connection) => { conn = connection; setupConnection(); });
         });
 
+        // ② 部屋に入る（ゲスト）
         document.getElementById('join-room-btn').addEventListener('click', () => {
             const roomId = document.getElementById('room-id-input').value;
             if (!roomId) return alert("部屋番号を入力してください");
-            statusEl.textContent = "接続中...";
+            statusEl.textContent = "接続中..."; statusEl.style.color = "#eab308";
             peer = new Peer({ debug: 3 });
             peer.on('open', () => {
                 document.getElementById('local-name').textContent = document.getElementById('player-name-input').value + " (あなた)";
@@ -110,9 +318,11 @@
 
         function setupConnection() {
             conn.on('open', () => {
-                statusEl.textContent = "対戦接続完了！"; statusEl.style.color = "green";
-                printLog(`対戦開始！`);
+                statusEl.textContent = "対戦接続完了！"; statusEl.style.color = "#10b981";
+                printLog(`対戦相手が接続しました！ゲームを開始します。`);
                 conn.send({ type: 'NAME', name: document.getElementById('player-name-input').value });
+                
+                switchView(true); // 💡 ゲーム画面のみにする
                 startGame();
             });
 
@@ -126,21 +336,28 @@
                 if (data.type === 'GAME_STATE') {
                     remoteField = data.field; remotePiece = data.piece; remoteHoldId = data.holdId; draw(); 
                 }
-                // 💡 お邪魔ブロックの受信処理
-                if (data.type === 'ATTACK') {
-                    receiveAttack(data.lines);
-                }
-                // 💡 相手がゲームオーバー＝自分の勝ち判定
-                if (data.type === 'GAMEOVER') {
-                    endGame(true);
-                }
+                if (data.type === 'ATTACK') { receiveAttack(data.lines); }
+                if (data.type === 'GAMEOVER') { endGame(true); } // 相手が詰んだら自分の勝ち
             });
 
+            // 💡 接続が切れたら棄権とみなし、残った方を勝利にする判定
             conn.on('close', () => {
-                statusEl.textContent = "切断されました"; statusEl.style.color = "red";
-                if (gameInterval) { clearInterval(gameInterval); gameInterval = null; }
+                printLog(`⚠️ 通信が切断されました。`, true);
+                if (gameInterval) { 
+                    // ゲーム中に切断された場合、残っている側（自分）の不戦勝にする
+                    endGame(true); 
+                    printLog("🏆 相手の回線が切断されたため、あなたの不戦勝です！");
+                }
             });
         }
+
+        // ロビーに戻るボタンの処理
+        backToLobbyBtn.addEventListener('click', () => {
+            if (peer) { peer.destroy(); peer = null; }
+            if (conn) { conn = null; }
+            switchView(false); // 💡 ロビー画面のみに戻す
+        });
+
 
         // ==========================================
         // 🕹️ 2. テトリス ゲームロジック
@@ -158,13 +375,11 @@
             1: [[1, 1, 1, 1]], 2: [[2, 2], [2, 2]], 3: [[0, 3, 0], [3, 3, 3]],
             4: [[4, 4, 0], [0, 4, 4]], 5: [[0, 5, 5], [5, 5, 0]], 6: [[6, 0, 0], [6, 6, 6]], 7: [[0, 0, 7], [7, 7, 7]]
         };
-        // 8番目の色は攻撃用のグレー（お邪魔ブロック）
-        const COLORS = [null, '#00f0f0', '#f0f000', '#a000f0', '#f00000', '#00f000', '#0000f0', '#f0a000', '#777777'];
+        const COLORS = [null, '#06b6d4', '#eab308', '#a855f7', '#ef4444', '#22c55e', '#3b82f6', '#f97316', '#64748b'];
 
         let currentPiece = { shape: [], colorId: 0, x: 0, y: 0 };
         let remotePiece = null; let localHoldId = null; let remoteHoldId = null; let hasHeld = false;
-        let gameInterval = null;
-        let pendingAttackLines = 0; // 保留中のお邪魔ブロックの数
+        let gameInterval = null; let pendingAttackLines = 0;
 
         function startGame() {
             localField = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
@@ -181,11 +396,7 @@
         }
 
         function spawnPiece() {
-            // お邪魔ブロックをせり上げるタイミング（新しいミノが出る直前）
-            if (pendingAttackLines > 0) {
-                riseAttackBlocks();
-            }
-
+            if (pendingAttackLines > 0) { riseAttackBlocks(); }
             const id = Math.floor(Math.random() * 7) + 1;
             currentPiece.shape = SHAPES[id]; currentPiece.colorId = id;
             currentPiece.x = Math.floor((COLS - currentPiece.shape[0].length) / 2); currentPiece.y = 0;
@@ -227,9 +438,7 @@
             if (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) {
                 currentPiece.y++; sendState();
             } else {
-                lockPiece();
-                clearLines();
-                spawnPiece(); sendState();
+                lockPiece(); clearLines(); spawnPiece(); sendState();
             }
         }
 
@@ -243,7 +452,6 @@
             }
         }
 
-        // 💡 ライン消去＆攻撃送信処理
         function clearLines() {
             let cleared = 0;
             for (let r = ROWS - 1; r >= 0; r--) {
@@ -252,39 +460,25 @@
                     cleared++; r++; 
                 }
             }
-            
             if (cleared >= 2) {
-                let attackLines = cleared - 1; // 2列消し=1列攻撃、3列消し=2列攻撃、4列消し=3列攻撃
-                // 💡 カウンター（相殺）システム：お邪魔が溜まっていれば、まずそれを減らす
+                let attackLines = cleared - 1;
                 if (pendingAttackLines > 0) {
-                    if (attackLines >= pendingAttackLines) {
-                        attackLines -= pendingAttackLines; pendingAttackLines = 0;
-                    } else {
-                        pendingAttackLines -= attackLines; attackLines = 0;
-                    }
+                    if (attackLines >= pendingAttackLines) { attackLines -= pendingAttackLines; pendingAttackLines = 0; }
+                    else { pendingAttackLines -= attackLines; attackLines = 0; }
                 }
-                // 相殺しきれなかった攻撃分を相手に送信
                 if (attackLines > 0 && conn && conn.open) {
                     conn.send({ type: 'ATTACK', lines: attackLines });
-                    printLog(`🚀 相手に ${attackLines} 列の攻撃を送りました！`);
                 }
             }
         }
 
-        // お邪魔を受け取る（ストックに貯める）
-        function receiveAttack(lines) {
-            pendingAttackLines += lines;
-            printLog(`⚠️ お邪魔ブロックが下から ${lines} 列迫っています！`, true);
-        }
+        function receiveAttack(lines) { pendingAttackLines += lines; }
 
-        // 実際にお邪魔ブロックを下からせり上げる処理
         function riseAttackBlocks() {
             for (let i = 0; i < pendingAttackLines; i++) {
-                localField.shift(); // 一番上の行を削除
-                // 1マスだけ穴の空いたグレーの行（色コード8）を生成
+                localField.shift();
                 let attackRow = Array(COLS).fill(8);
-                let holeIndex = Math.floor(Math.random() * COLS);
-                attackRow[holeIndex] = 0;
+                attackRow[Math.floor(Math.random() * COLS)] = 0;
                 localField.push(attackRow);
             }
             pendingAttackLines = 0;
@@ -306,28 +500,28 @@
             draw();
         }
 
-        // 💡 勝ち負けが確定した時のゲーム終了処理
+        // 💡 勝ち負け確定処理
         function endGame(isWin) {
-            if (!gameInterval) return; // 既に終わってたら何もしない
-            clearInterval(gameInterval);
-            gameInterval = null;
+            if (!gameInterval) return; 
+            clearInterval(gameInterval); gameInterval = null;
 
             const localResultEl = document.getElementById('local-result');
             const remoteResultEl = document.getElementById('remote-result');
 
             if (isWin) {
-                localResultEl.textContent = "WIN"; localResultEl.style.color = "#00ff00";
-                remoteResultEl.textContent = "LOSE"; remoteResultEl.style.color = "#ff0000";
-                printLog("🏆 あなたの勝ちです！");
+                localResultEl.textContent = "WIN"; localResultEl.style.color = "#4ade80";
+                remoteResultEl.textContent = "LOSE"; remoteResultEl.style.color = "#f87171";
             } else {
-                localResultEl.textContent = "LOSE"; localResultEl.style.color = "#ff0000";
-                remoteResultEl.textContent = "WIN"; remoteResultEl.style.color = "#00ff00";
-                printLog("💀 あなたの負けです...", true);
+                localResultEl.textContent = "LOSE"; localResultEl.style.color = "#f87171";
+                remoteResultEl.textContent = "WIN"; remoteResultEl.style.color = "#4ade80";
                 if (conn && conn.open) conn.send({ type: 'GAMEOVER' });
             }
 
             localResultEl.style.display = 'block';
             remoteResultEl.style.display = 'block';
+            
+            // 💡 ゲーム終了後、「ロビーに戻る」ボタンを出して戻れるようにする
+            backToLobbyBtn.style.display = 'block';
         }
 
         // ==========================================
@@ -349,7 +543,7 @@
         }
 
         function drawGrid(ctx) {
-            ctx.strokeStyle = '#222'; ctx.lineWidth = 1;
+            ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
             for (let r = 0; r < ROWS; r++) {
                 for (let c = 0; c < COLS; c++) { ctx.strokeRect(c * BLOCK_SIZE, r * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE); }
             }
