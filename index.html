@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>P2P オンライン対戦テトリス (完全版)</title>
+    <title>オンライン対戦Tetris</title>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <style>
         :root {
@@ -30,7 +30,6 @@
             font-weight: 700;
             letter-spacing: 1px;
         }
-        /* ロビー画面のスタイル */
         #lobby-view {
             background: var(--panel-bg);
             border: 1px solid var(--border-color);
@@ -60,7 +59,6 @@
             color: #fff;
             font-size: 16px;
             box-sizing: border-box;
-            transition: border 0.2s;
         }
         .input-group input:focus {
             outline: none;
@@ -94,9 +92,8 @@
             color: #cbd5e1;
         }
 
-        /* ゲーム画面のスタイル */
         #game-view {
-            display: none; /* 最初は非表示 */
+            display: none;
             flex-direction: column;
             align-items: center;
             width: 100%;
@@ -170,9 +167,9 @@
             color: #64748b;
             font-size: 14px;
             margin-top: 10px;
+            line-height: 1.5;
         }
 
-        /* デバッグログ */
         #debug-panel {
             background: #020617;
             border: 1px solid var(--border-color);
@@ -192,7 +189,7 @@
 </head>
 <body>
 
-    <h1>P2P BATTLE TETRIS</h1>
+    <h1>オンラインTetris</h1>
 
     <div id="lobby-view">
         <div class="input-group">
@@ -200,7 +197,7 @@
             <input type="text" id="player-name-input" value="プレイヤー">
         </div>
         <div class="input-group">
-            <label>部屋番号 (4桁の数字など)</label>
+            <label>部屋番号</label>
             <input type="text" id="room-id-input" placeholder="例: 1234">
         </div>
         <div class="btn-container">
@@ -226,7 +223,11 @@
                         <div id="local-result" class="result-screen"></div>
                     </div>
                 </div>
-                <p class="controls-hint">操作: 左右下（移動）/ 上（回転）/ Shift（ホールド）</p>
+                <div class="controls-hint">
+                    移動: 左右矢印 / 下矢印（ソフトドロップ）<br>
+                    回転: <strong>上矢印 または スペースキー</strong> / ホールド: Shift<br>
+                    一気に落とす: <strong>エンターキー (Enter)</strong>
+                </div>
             </div>
 
             <div class="player-area">
@@ -243,7 +244,7 @@
                         <div id="remote-result" class="result-screen"></div>
                     </div>
                 </div>
-                <p class="controls-hint">2列以上消しで相手にお邪魔ブロック攻撃！</p>
+                <div class="controls-hint">2列以上消しで相手にお邪魔ブロック攻撃！</div>
             </div>
         </div>
 
@@ -273,12 +274,11 @@
             logEl.parentNode.scrollTop = logEl.parentNode.scrollHeight;
         }
 
-        // 画面の表示切り替え関数
         function switchView(toGame) {
             if (toGame) {
                 lobbyView.style.display = 'none';
                 gameView.style.display = 'flex';
-                backToLobbyBtn.style.display = 'none'; // 試合中は隠す
+                backToLobbyBtn.style.display = 'none';
             } else {
                 lobbyView.style.display = 'block';
                 gameView.style.display = 'none';
@@ -287,7 +287,6 @@
             }
         }
 
-        // ① 部屋を作る（ホスト）
         document.getElementById('make-room-btn').addEventListener('click', () => {
             const roomId = document.getElementById('room-id-input').value;
             if (!roomId) return alert("部屋番号を入力してください");
@@ -302,7 +301,6 @@
             peer.on('connection', (connection) => { conn = connection; setupConnection(); });
         });
 
-        // ② 部屋に入る（ゲスト）
         document.getElementById('join-room-btn').addEventListener('click', () => {
             const roomId = document.getElementById('room-id-input').value;
             if (!roomId) return alert("部屋番号を入力してください");
@@ -321,8 +319,7 @@
                 statusEl.textContent = "対戦接続完了！"; statusEl.style.color = "#10b981";
                 printLog(`対戦相手が接続しました！ゲームを開始します。`);
                 conn.send({ type: 'NAME', name: document.getElementById('player-name-input').value });
-                
-                switchView(true); // 💡 ゲーム画面のみにする
+                switchView(true);
                 startGame();
             });
 
@@ -337,25 +334,22 @@
                     remoteField = data.field; remotePiece = data.piece; remoteHoldId = data.holdId; draw(); 
                 }
                 if (data.type === 'ATTACK') { receiveAttack(data.lines); }
-                if (data.type === 'GAMEOVER') { endGame(true); } // 相手が詰んだら自分の勝ち
+                if (data.type === 'GAMEOVER') { endGame(true); }
             });
 
-            // 💡 接続が切れたら棄権とみなし、残った方を勝利にする判定
             conn.on('close', () => {
                 printLog(`⚠️ 通信が切断されました。`, true);
                 if (gameInterval) { 
-                    // ゲーム中に切断された場合、残っている側（自分）の不戦勝にする
                     endGame(true); 
                     printLog("🏆 相手の回線が切断されたため、あなたの不戦勝です！");
                 }
             });
         }
 
-        // ロビーに戻るボタンの処理
         backToLobbyBtn.addEventListener('click', () => {
             if (peer) { peer.destroy(); peer = null; }
             if (conn) { conn = null; }
-            switchView(false); // 💡 ロビー画面のみに戻す
+            switchView(false);
         });
 
 
@@ -403,7 +397,7 @@
             hasHeld = false; 
 
             if (checkCollision(currentPiece.x, currentPiece.y, currentPiece.shape)) {
-                endGame(false); // 自分が詰まったので負け
+                endGame(false);
             }
         }
 
@@ -438,8 +432,16 @@
             if (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) {
                 currentPiece.y++; sendState();
             } else {
-                lockPiece(); clearLines(); spawnPiece(); sendState();
+                lockAndProceed();
             }
+        }
+
+        // 固定化から次への一連の処理を分離
+        function lockAndProceed() {
+            lockPiece();
+            clearLines();
+            spawnPiece();
+            sendState();
         }
 
         function lockPiece() {
@@ -484,13 +486,32 @@
             pendingAttackLines = 0;
         }
 
+        // 💡 壁際での回転を補正する処理（簡易ウォールキック）
         function rotatePiece() {
             const r = currentPiece.shape.length; const c = currentPiece.shape[0].length;
             const rotated = Array.from({ length: c }, () => Array(r).fill(0));
             for (let i = 0; i < r; i++) {
                 for (let j = 0; j < c; j++) { rotated[j][r - 1 - i] = currentPiece.shape[i][j]; }
             }
-            if (!checkCollision(currentPiece.x, currentPiece.y, rotated)) { currentPiece.shape = rotated; sendState(); }
+            
+            // 補正パターンの検証（その場 → 1マス左にずらす → 1マス右にずらす）
+            const offsets = [0, -1, 1, -2, 2];
+            for (let offset of offsets) {
+                if (!checkCollision(currentPiece.x + offset, currentPiece.y, rotated)) {
+                    currentPiece.x += offset;
+                    currentPiece.shape = rotated;
+                    sendState();
+                    break;
+                }
+            }
+        }
+
+        // 💡 一気に真下まで落とすハードドロップ処理
+        function hardDrop() {
+            while (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) {
+                currentPiece.y++;
+            }
+            lockAndProceed();
         }
 
         function sendState() {
@@ -500,7 +521,6 @@
             draw();
         }
 
-        // 💡 勝ち負け確定処理
         function endGame(isWin) {
             if (!gameInterval) return; 
             clearInterval(gameInterval); gameInterval = null;
@@ -519,8 +539,6 @@
 
             localResultEl.style.display = 'block';
             remoteResultEl.style.display = 'block';
-            
-            // 💡 ゲーム終了後、「ロビーに戻る」ボタンを出して戻れるようにする
             backToLobbyBtn.style.display = 'block';
         }
 
@@ -585,10 +603,14 @@
                 currentPiece.x++; sendState(); e.preventDefault();
             } else if (e.key === 'ArrowDown' && !checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) {
                 currentPiece.y++; sendState(); e.preventDefault();
-            } else if (e.key === 'ArrowUp') {
+            } else if (e.key === 'ArrowUp' || e.key === ' ') {
+                // 💡 上矢印キー、またはスペースキーで回転
                 rotatePiece(); e.preventDefault();
             } else if (e.key === 'Shift') {
                 holdPiece(); e.preventDefault();
+            } else if (e.key === 'Enter') {
+                // 💡 Enterキーでハードドロップ（一気に落とす）
+                hardDrop(); e.preventDefault();
             }
         });
     </script>
