@@ -2,10 +2,10 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>P2P オンライン対戦テトリス (デバッグ版)</title>
+    <title>P2P オンライン対戦テトリス (完全統合版)</title>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
-<body style="font-family: sans-serif; padding: 20px; background: #f0f2f5;">
+<body style="font-family: sans-serif; padding: 20px; background: #f0f2f5; user-select: none;">
 
     <h1>P2P オンライン対戦テトリス</h1>
 
@@ -28,43 +28,46 @@
         <div style="text-align: center;">
             <h2 id="local-name">あなた (PLAYER 1)</h2>
             <canvas id="local-canvas" width="300" height="600" style="border: 2px solid #333; background: #111;"></canvas>
+            <p style="color: #666; font-size: 14px;">操作: 矢印キー（左右下: 移動 / 上: 回転）</p>
         </div>
         <div style="text-align: center;">
             <h2 id="remote-name">あいて (PLAYER 2)</h2>
             <canvas id="remote-canvas" width="300" height="600" style="border: 2px solid #333; background: #111;"></canvas>
+            <p style="color: #666; font-size: 14px;">相手の盤面がリアルタイムに同期されます</p>
         </div>
     </div>
 
-    <div style="background: #222; color: #0f0; padding: 15px; border-radius: 5px; font-family: monospace; max-height: 200px; overflow-y: auto;">
+    <div style="background: #222; color: #0f0; padding: 15px; border-radius: 5px; font-family: monospace; max-height: 180px; overflow-y: auto;">
         <h3>🛠️ システムデバッグログ</h3>
         <div id="debug-log"></div>
     </div>
 
     <script>
+        // ==========================================
+        // 🌐 1. P2P 通信設定・マッチングロジック
+        // ==========================================
         let peer = null;
         let conn = null;
         const statusEl = document.getElementById('connection-status');
         const logEl = document.getElementById('debug-log');
         const ROOM_PREFIX = "github-tetris-room-";
 
-        // ログを画面に出力する関数
         function printLog(msg, isError = false) {
             const time = new Date().toLocaleTimeString();
             const color = isError ? 'red' : '#0f0';
             logEl.innerHTML += `<div style="color: ${color}">[${time}] ${msg}</div>`;
-            logEl.scrollTop = logEl.scrollHeight; // 常に最新をスクロール表示
+            logEl.scrollTop = logEl.scrollHeight;
             console.log(`[${time}] ${msg}`);
         }
 
-        // 1. 部屋を作る（ホスト側）
+        // ① 部屋を作る（ホスト）
         document.getElementById('make-room-btn').addEventListener('click', () => {
             const roomId = document.getElementById('room-id-input').value;
             if (!roomId) return alert("部屋番号を入力してください");
 
             statusEl.textContent = "部屋を開設中...";
-            printLog(`PeerJSサーバーに接続を試みています... (部屋ID: ${ROOM_PREFIX + roomId})`);
+            printLog(`PeerJSサーバーに接続中... (部屋ID: ${ROOM_PREFIX + roomId})`);
             
-            // 💡 デバッグログを詳細に出すオプションを追加 (debug: 3)
             peer = new Peer(ROOM_PREFIX + roomId, { debug: 3 });
 
             peer.on('open', (id) => {
@@ -76,14 +79,10 @@
                 document.getElementById('local-name').textContent = myName + " (あなた)";
             });
 
-            // エラーをキャッチして画面に表示する
             peer.on('error', (err) => {
                 statusEl.textContent = "エラー発生";
                 statusEl.style.color = "red";
                 printLog(`【エラー】種類: ${err.type} / メッセージ: ${err.message}`, true);
-                if (err.type === 'unavailable-id') {
-                    printLog("→ その部屋番号はすでに他の人が使っています。別の番号を試してください。", true);
-                }
             });
 
             peer.on('connection', (connection) => {
@@ -93,18 +92,17 @@
             });
         });
 
-        // 2. 部屋に入る（ゲスト側）
+        // ② 部屋に入る（ゲスト）
         document.getElementById('join-room-btn').addEventListener('click', () => {
             const roomId = document.getElementById('room-id-input').value;
             if (!roomId) return alert("部屋番号を入力してください");
 
             statusEl.textContent = "接続中...";
-            printLog(`ランダムなIDでPeerを作成します...`);
+            printLog(`一時IDを発行して部屋 ${roomId} へ接続を開始します...`);
             
             peer = new Peer({ debug: 3 });
 
             peer.on('open', () => {
-                printLog(`自分の一時接続IDが発行されました。部屋 ${roomId} へ接続を開始します...`);
                 const myName = document.getElementById('player-name-input').value;
                 document.getElementById('local-name').textContent = myName + " (あなた)";
 
@@ -119,25 +117,41 @@
             });
         });
 
-        // 🤝 接続完了後の処理
+        // P2P 接続確立後のイベントハンドリング
         function setupConnection() {
             conn.on('open', () => {
                 statusEl.textContent = "対戦接続完了！";
                 statusEl.style.color = "green";
-                printLog(`P2Pデータチャネルが開きました！対戦可能です。`);
+                printLog(`P2Pデータチャネルが開きました！ゲームを開始します。`);
                 
                 const myName = document.getElementById('player-name-input').value;
                 conn.send({ type: 'NAME', name: myName });
+
+                // ゲーム開始
+                startGame();
             });
 
             conn.on('data', (data) => {
-                printLog(`データ受信: ${JSON.stringify(data)}`);
+                // 受信データごとの分岐処理
                 if (data.type === 'NAME') {
                     document.getElementById('remote-name').textContent = data.name + " (あいて)";
                     if (peer.id.startsWith(ROOM_PREFIX)) { 
                         const myName = document.getElementById('player-name-input').value;
                         conn.send({ type: 'NAME', name: myName });
                     }
+                }
+
+                // 相手の盤面データを受け取って更新
+                if (data.type === 'FIELD_UPDATE') {
+                    remoteField = data.field;
+                    draw(); 
+                }
+
+                // 相手がゲームオーバーになった
+                if (data.type === 'GAMEOVER') {
+                    printLog("🎉 相手がゲームオーバーになりました。あなたの勝ちです！");
+                    clearInterval(gameInterval);
+                    gameInterval = null;
                 }
             });
 
@@ -146,10 +160,215 @@
                 statusEl.style.color = "red";
                 printLog(`接続が終了しました。`);
                 document.getElementById('remote-name').textContent = "あいて (PLAYER 2)";
+                if (gameInterval) {
+                    clearInterval(gameInterval);
+                    gameInterval = null;
+                }
             });
         }
+
+
+        // ==========================================
+        // 🕹️ 2. テトリス ゲームロジック
+        // ==========================================
+        const COLS = 10;
+        const ROWS = 20;
+        const BLOCK_SIZE = 30;
+
+        const localCanvas = document.getElementById('local-canvas');
+        const localCtx = localCanvas.getContext('2d');
+        const remoteCanvas = document.getElementById('remote-canvas');
+        const remoteCtx = remoteCanvas.getContext('2d');
+
+        let localField = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+        let remoteField = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+
+        // 7種類のテトリミノ（ブロック形状）定義
+        const SHAPES = {
+            1: [[1, 1, 1, 1]], // I
+            2: [[2, 2], [2, 2]], // O
+            3: [[0, 3, 0], [3, 3, 3]], // T
+            4: [[4, 4, 0], [0, 4, 4]], // Z
+            5: [[0, 5, 5], [5, 5, 0]], // S
+            6: [[6, 0, 0], [6, 6, 6]], // J
+            7: [[0, 0, 7], [7, 7, 7]]  // L
+        };
+        const COLORS = [
+            null, 
+            '#00f0f0', '#f0f000', '#a000f0', 
+            '#f00000', '#00f000', '#0000f0', '#f0a000'
+        ];
+
+        let currentPiece = { shape: [], colorId: 0, x: 0, y: 0 };
+        let gameInterval = null;
+
+        function startGame() {
+            localField = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+            remoteField = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+            spawnPiece();
+            
+            if (gameInterval) clearInterval(gameInterval);
+            gameInterval = setInterval(gameLoop, 800); // 0.8秒ごとに自然落下
+            draw();
+        }
+
+        function spawnPiece() {
+            const id = Math.floor(Math.random() * 7) + 1;
+            currentPiece.shape = SHAPES[id];
+            currentPiece.colorId = id;
+            currentPiece.x = Math.floor((COLS - currentPiece.shape[0].length) / 2);
+            currentPiece.y = 0;
+
+            if (checkCollision(currentPiece.x, currentPiece.y, currentPiece.shape)) {
+                printLog("💀 あなたはゲームオーバーになりました...", true);
+                clearInterval(gameInterval);
+                gameInterval = null;
+                if (conn && conn.open) {
+                    conn.send({ type: 'GAMEOVER' });
+                }
+            }
+        }
+
+        function checkCollision(nx, ny, shape) {
+            for (let r = 0; r < shape.length; r++) {
+                for (let c = 0; c < shape[r].length; c++) {
+                    if (shape[r][c]) {
+                        let targetX = nx + c;
+                        let targetY = ny + r;
+                        if (targetX < 0 || targetX >= COLS || targetY >= ROWS) return true;
+                        if (targetY >= 0 && localField[targetY][targetX]) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function gameLoop() {
+            if (!gameInterval) return;
+            if (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) {
+                currentPiece.y++;
+            } else {
+                lockPiece();
+                clearLines();
+                spawnPiece();
+                
+                // 盤面が確定したら相手にデータを送信
+                if (conn && conn.open) {
+                    conn.send({ type: 'FIELD_UPDATE', field: localField });
+                }
+            }
+            draw();
+        }
+
+        function lockPiece() {
+            for (let r = 0; r < currentPiece.shape.length; r++) {
+                for (let c = 0; c < currentPiece.shape[r].length; c++) {
+                    if (currentPiece.shape[r][c]) {
+                        if (currentPiece.y + r >= 0) {
+                            localField[currentPiece.y + r][currentPiece.x + c] = currentPiece.colorId;
+                        }
+                    }
+                }
+            }
+        }
+
+        function clearLines() {
+            for (let r = ROWS - 1; r >= 0; r--) {
+                if (localField[r].every(v => v > 0)) {
+                    localField.splice(r, 1);
+                    localField.unshift(Array(COLS).fill(0));
+                    r++; 
+                }
+            }
+        }
+
+        // ブロックの回転処理（二次元配列の90度回転）
+        function rotatePiece() {
+            const r = currentPiece.shape.length;
+            const c = currentPiece.shape[0].length;
+            const rotated = Array.from({ length: c }, () => Array(r).fill(0));
+            for (let i = 0; i < r; i++) {
+                for (let j = 0; j < c; j++) {
+                    rotated[j][r - 1 - i] = currentPiece.shape[i][j];
+                }
+            }
+            if (!checkCollision(currentPiece.x, currentPiece.y, rotated)) {
+                currentPiece.shape = rotated;
+            }
+        }
+
+        // ==========================================
+        // 🎨 3. 画面描画とキー操作処理
+        // ==========================================
+        function draw() {
+            localCtx.clearRect(0, 0, localCanvas.width, localCanvas.height);
+            remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
+
+            // グリッド背景の描画
+            drawGrid(localCtx);
+            drawGrid(remoteCtx);
+
+            // フィールドブロックの描画
+            drawField(localCtx, localField);
+            drawField(remoteCtx, remoteField);
+
+            // 自分の操作中ミノの描画
+            if (gameInterval) {
+                drawPiece(localCtx, currentPiece);
+            }
+        }
+
+        function drawGrid(ctx) {
+            ctx.strokeStyle = '#222';
+            ctx.lineWidth = 1;
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    ctx.strokeRect(c * BLOCK_SIZE, r * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+                }
+            }
+        }
+
+        function drawField(ctx, field) {
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (field[r][c]) {
+                        ctx.fillStyle = COLORS[field[r][c]];
+                        ctx.fillRect(c * BLOCK_SIZE + 1, r * BLOCK_SIZE + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2);
+                    }
+                }
+            }
+        }
+
+        function drawPiece(ctx, piece) {
+            ctx.fillStyle = COLORS[piece.colorId];
+            for (let r = 0; r < piece.shape.length; r++) {
+                for (let c = 0; c < piece.shape[r].length; c++) {
+                    if (piece.shape[r][c]) {
+                        ctx.fillRect((piece.x + c) * BLOCK_SIZE + 1, (piece.y + r) * BLOCK_SIZE + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2);
+                    }
+                }
+            }
+        }
+
+        // キーボード入力イベント
+        window.addEventListener('keydown', (e) => {
+            if (!gameInterval) return; 
+            
+            if (e.key === 'ArrowLeft' && !checkCollision(currentPiece.x - 1, currentPiece.y, currentPiece.shape)) {
+                currentPiece.x--;
+                e.preventDefault();
+            } else if (e.key === 'ArrowRight' && !checkCollision(currentPiece.x + 1, currentPiece.y, currentPiece.shape)) {
+                currentPiece.x++;
+                e.preventDefault();
+            } else if (e.key === 'ArrowDown' && !checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) {
+                currentPiece.y++;
+                e.preventDefault();
+            } else if (e.key === 'ArrowUp') {
+                rotatePiece();
+                e.preventDefault();
+            }
+            draw();
+        });
     </script>
-</body>
-</html>
 </body>
 </html>
