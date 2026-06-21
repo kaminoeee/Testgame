@@ -3,23 +3,30 @@
     <h1>P2P オンライン対戦テトリス</h1>
 
     <div id="connection-setup" style="margin-bottom: 20px; padding: 15px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 5px;">
-        <label for="room-id-input"><strong>部屋番号（数字4桁など）: </strong></label>
-        <input type="text" id="room-id-input" placeholder="例: 1234" style="padding: 5px; font-size: 16px; width: 100px;">
+        <div style="margin-bottom: 10px;">
+            <label for="player-name-input"><strong>あなたの名前: </strong></label>
+            <input type="text" id="player-name-input" value="プレイヤー" style="padding: 5px; font-size: 16px; width: 150px;">
+        </div>
         
-        <button id="make-room-btn" style="padding: 5px 10px; font-size: 16px; margin-left: 10px;">① 部屋を作る</button>
-        <button id="join-room-btn" style="padding: 5px 10px; font-size: 16px;">② 部屋に入る</button>
-        
-        <span id="connection-status" style="margin-left: 15px; font-weight: bold; color: #ff0000;">未接続</span>
+        <div>
+            <label for="room-id-input"><strong>部屋番号（数字4桁など）: </strong></label>
+            <input type="text" id="room-id-input" placeholder="例: 1234" style="padding: 5px; font-size: 16px; width: 100px;">
+            
+            <button id="make-room-btn" style="padding: 5px 10px; font-size: 16px; margin-left: 10px;">① 部屋を作る</button>
+            <button id="join-room-btn" style="padding: 5px 10px; font-size: 16px;">② 部屋に入る</button>
+            
+            <span id="connection-status" style="margin-left: 15px; font-weight: bold; color: #ff0000;">未接続</span>
+        </div>
     </div>
 
     <div style="display: flex; gap: 40px; justify-content: center;">
         <div style="text-align: center;">
-            <h2>あなた (PLAYER 1)</h2>
+            <h2 id="local-name">あなた (PLAYER 1)</h2>
             <canvas id="local-canvas" width="300" height="600" style="border: 2px solid #333; background: #111;"></canvas>
             <p>SCORE: <span id="local-score">0</span></p>
         </div>
         <div style="text-align: center;">
-            <h2>あいて (PLAYER 2)</h2>
+            <h2 id="remote-name">あいて (PLAYER 2)</h2>
             <canvas id="remote-canvas" width="300" height="600" style="border: 2px solid #333; background: #111;"></canvas>
             <p>SCORE: <span id="remote-score">0</span></p>
         </div>
@@ -29,8 +36,6 @@
         let peer = null;
         let conn = null;
         const statusEl = document.getElementById('connection-status');
-
-        // プレフィックス（他のPeerJSアプリと衝突しないための合言葉）
         const ROOM_PREFIX = "github-tetris-room-";
 
         // 1. 部屋を作る（ホスト側）
@@ -39,26 +44,22 @@
             if (!roomId) return alert("部屋番号を入力してください");
 
             statusEl.textContent = "部屋を開設中...";
-            
-            // 部屋番号をIDに指定してPeerオブジェクトを作成
             peer = new Peer(ROOM_PREFIX + roomId);
 
             peer.on('open', (id) => {
                 statusEl.textContent = `部屋 ${roomId} で待機中... 友達に入ってもらってね！`;
                 statusEl.style.color = "orange";
+                
+                // 自分の画面に名前を反映
+                const myName = document.getElementById('player-name-input').value;
+                document.getElementById('local-name').textContent = myName + " (あなた)";
             });
 
             peer.on('error', (err) => {
-                if (err.type === 'unavailable-id') {
-                    alert("その部屋番号はすでに使われています！別の番号にしてください。");
-                } else {
-                    alert("エラーが発生しました: " + err.type);
-                }
-                statusEl.textContent = "未接続";
-                statusEl.style.color = "red";
+                if (err.type === 'unavailable-id') alert("その部屋番号はすでに使われています！");
+                statusEl.textContent = "未接続"; statusEl.style.color = "red";
             });
 
-            // ゲストが接続してきたとき
             peer.on('connection', (connection) => {
                 conn = connection;
                 setupConnection();
@@ -71,11 +72,13 @@
             if (!roomId) return alert("部屋番号を入力してください");
 
             statusEl.textContent = "接続中...";
-            
-            // ゲストはランダムなIDでPeerを作成し、ホストの部屋番号に接続する
             peer = new Peer();
 
             peer.on('open', () => {
+                // 自分の画面に名前を反映
+                const myName = document.getElementById('player-name-input').value;
+                document.getElementById('local-name').textContent = myName + " (あなた)";
+
                 conn = peer.connect(ROOM_PREFIX + roomId);
                 setupConnection();
             });
@@ -87,22 +90,37 @@
                 statusEl.textContent = "対戦接続完了！ゲーム開始できます。";
                 statusEl.style.color = "green";
                 
-                // テストデータの送受信確認用（コンソールで確認）
-                conn.send("READY");
+                // ✨ 接続が完了したら、即座に自分の名前を相手に送りつける！
+                const myName = document.getElementById('player-name-input').value;
+                conn.send({ type: 'NAME', name: myName });
             });
 
+            // データを受信したとき
             conn.on('data', (data) => {
-                console.log("相手からのデータ:", data);
-                // ここに相手のテトリス盤面を描画する処理が入る
+                // 送られてきたデータの「種類（type）」で処理を分ける
+                if (data.type === 'NAME') {
+                    // ✨ 相手から名前が届いたら、右側の表示を書き換える
+                    document.getElementById('remote-name').textContent = data.name + " (あいて)";
+                    
+                    // ホスト側は、ゲストから名前を貰ったら自分も名前を返し忘れないようにする
+                    if (peer.id.startsWith(ROOM_PREFIX)) { 
+                        const myName = document.getElementById('player-name-input').value;
+                        conn.send({ type: 'NAME', name: myName });
+                    }
+                }
+                
+                if (data.type === 'GAME_DATA') {
+                    // ここで相手のテトリス盤面（後で実装）を受け取る
+                }
             });
 
             conn.on('close', () => {
                 statusEl.textContent = "切断されました";
                 statusEl.style.color = "red";
+                document.getElementById('remote-name').textContent = "あいて (PLAYER 2)";
             });
         }
     </script>
 </body>
-    </script>
 </body>
 </html>
