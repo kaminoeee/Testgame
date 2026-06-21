@@ -69,7 +69,7 @@
             color: #94a3b8;
             font-size: 14px;
         }
-        .input-group input {
+        .input-group input[type="text"] {
             width: 100%;
             padding: 12px;
             background: #0f172a;
@@ -83,6 +83,38 @@
             outline: none;
             border-color: var(--accent-color);
         }
+
+        /* 💡 オーディオ設定パネル用スタイル */
+        .settings-panel {
+            background: #0f172a;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .settings-title {
+            font-size: 13px;
+            font-weight: bold;
+            color: var(--accent-color);
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .volume-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        .volume-row:last-child { margin-bottom: 0; }
+        .volume-row label { color: #cbd5e1; }
+        .volume-row input[type="range"] {
+            width: 60%;
+            accent-color: var(--accent-color);
+            cursor: pointer;
+        }
+
         .btn-container {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -202,7 +234,6 @@
             text-shadow: 0 0 20px rgba(234, 179, 8, 0.6);
         }
 
-        /* 💡 特殊消し(T-Spin/Tetris)のポップアップテキスト用 */
         .action-popup {
             position: absolute;
             top: 30%;
@@ -269,11 +300,24 @@
             <label>部屋番号</label>
             <input type="text" id="room-id-input" placeholder="例: 1234">
         </div>
+
+        <div class="settings-panel">
+            <div class="settings-title">🎵 AUDIO SETTINGS</div>
+            <div class="volume-row">
+                <label for="bgm-volume">BGM 音量</label>
+                <input type="range" id="bgm-volume" min="0" max="100" value="40">
+            </div>
+            <div class="volume-row">
+                <label for="se-volume">効果音 (SE)</label>
+                <input type="range" id="se-volume" min="0" max="100" value="70">
+            </div>
+        </div>
+
         <div class="btn-container">
             <button id="make-room-btn">部屋を作る</button>
             <button id="join-room-btn">部屋に入る</button>
         </div>
-        <div id="status-bar">未接続 (画面クリックでサウンド有効化)</div>
+        <div id="status-bar">未接続 (操作を始めるとサウンドが有効化します)</div>
     </div>
 
     <div id="game-view">
@@ -347,6 +391,11 @@
         // ==========================================
         let audioCtx = null;
         let bgmNode = null;
+        let bgmGainNode = null; // 💡 BGMの音量を動的に変更するためのノード
+
+        // UIのスライダー要素
+        const bgmVolSlider = document.getElementById('bgm-volume');
+        const seVolSlider = document.getElementById('se-volume');
 
         function initAudio() {
             if (!audioCtx) {
@@ -356,8 +405,20 @@
         window.addEventListener('click', initAudio);
         window.addEventListener('keydown', initAudio);
 
+        // 💡 スライダーの値が変わったら即座に再生中のBGM音量を変更する
+        bgmVolSlider.addEventListener('input', () => {
+            if (bgmGainNode && audioCtx) {
+                const vol = parseFloat(bgmVolSlider.value) / 100 * 0.1; // 最大マスター調整
+                bgmGainNode.gain.setValueAtTime(vol, audioCtx.currentTime);
+            }
+        });
+
         function playSE(type) {
             if (!audioCtx) return;
+            // SE音量計算 (スライダー値 0〜100)
+            const seMasterVol = parseFloat(seVolSlider.value) / 100;
+            if (seMasterVol <= 0) return; // ミュートなら処理しない
+
             try {
                 const osc = audioCtx.createOscillator();
                 const gain = audioCtx.createGain();
@@ -367,35 +428,35 @@
                 const now = audioCtx.currentTime;
                 if (type === 'move') {
                     osc.type = 'triangle'; osc.frequency.setValueAtTime(150, now);
-                    gain.gain.setValueAtTime(0.1, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+                    gain.gain.setValueAtTime(0.1 * seMasterVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
                     osc.start(now); osc.stop(now + 0.05);
                 } else if (type === 'rotate') {
                     osc.type = 'sine'; osc.frequency.setValueAtTime(300, now);
                     osc.frequency.exponentialRampToValueAtTime(450, now + 0.08);
-                    gain.gain.setValueAtTime(0.1, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+                    gain.gain.setValueAtTime(0.1 * seMasterVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
                     osc.start(now); osc.stop(now + 0.08);
                 } else if (type === 'drop') {
                     osc.type = 'sawtooth'; osc.frequency.setValueAtTime(100, now);
-                    gain.gain.setValueAtTime(0.15, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                    gain.gain.setValueAtTime(0.15 * seMasterVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
                     osc.start(now); osc.stop(now + 0.1);
                 } else if (type === 'clear') {
-                    osc.type = 'sine'; osc.frequency.setValueAtTime(523.25, now); // C5
-                    osc.frequency.setValueAtTime(659.25, now + 0.08); // E5
-                    osc.frequency.setValueAtTime(783.99, now + 0.16); // G5
-                    gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                    osc.type = 'sine'; osc.frequency.setValueAtTime(523.25, now);
+                    osc.frequency.setValueAtTime(659.25, now + 0.08);
+                    osc.frequency.setValueAtTime(783.99, now + 0.16);
+                    gain.gain.setValueAtTime(0.2 * seMasterVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
                     osc.start(now); osc.stop(now + 0.3);
                 } else if (type === 'special') {
                     osc.type = 'sawtooth'; osc.frequency.setValueAtTime(587.33, now);
                     osc.frequency.linearRampToValueAtTime(1174.66, now + 0.4);
-                    gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+                    gain.gain.setValueAtTime(0.2 * seMasterVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
                     osc.start(now); osc.stop(now + 0.4);
                 } else if (type === 'count') {
                     osc.type = 'sine'; osc.frequency.setValueAtTime(440, now);
-                    gain.gain.setValueAtTime(0.15, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                    gain.gain.setValueAtTime(0.15 * seMasterVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
                     osc.start(now); osc.stop(now + 0.1);
                 } else if (type === 'go') {
                     osc.type = 'sine'; osc.frequency.setValueAtTime(880, now);
-                    gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                    gain.gain.setValueAtTime(0.2 * seMasterVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
                     osc.start(now); osc.stop(now + 0.3);
                 }
             } catch(e) {}
@@ -413,11 +474,15 @@
                 let time = audioCtx.currentTime;
 
                 bgmNode = audioCtx.createOscillator();
-                const bgmGain = audioCtx.createGain();
+                bgmGainNode = audioCtx.createGain(); // 音量調整用ノード作成
                 bgmNode.type = 'triangle';
-                bgmNode.connect(bgmGain);
-                bgmGain.connect(audioCtx.destination);
-                bgmGain.gain.setValueAtTime(0.04, time);
+                
+                bgmNode.connect(bgmGainNode);
+                bgmGainNode.connect(audioCtx.destination);
+                
+                // 初期のBGM音量をスライダーから取得して適用
+                const initVol = parseFloat(bgmVolSlider.value) / 100 * 0.1; 
+                bgmGainNode.gain.setValueAtTime(initVol, time);
 
                 notes.forEach((freq, i) => {
                     if (freq > 0) {
@@ -434,6 +499,7 @@
 
         function stopBGM() {
             if (bgmNode) { try { bgmNode.stop(); } catch(e){} bgmNode = null; }
+            bgmGainNode = null;
         }
 
         // ==========================================
@@ -559,7 +625,7 @@
         let localNextQueue = []; let remoteNextQueue = [];
         let gameInterval = null; let pendingAttackLines = 0;
         let isCountingDown = false;
-        let lastActionWasRotate = false; // T-Spin判定用フラグ
+        let lastActionWasRotate = false;
 
         function startCountdown() {
             isCountingDown = true;
@@ -608,7 +674,6 @@
         function spawnPiece() {
             if (pendingAttackLines > 0) { riseAttackBlocks(); }
             
-            // キューから次のミノを取り出し、新しく補充
             const id = localNextQueue.shift();
             localNextQueue.push(Math.floor(Math.random() * 7) + 1);
 
@@ -660,12 +725,10 @@
         }
 
         function lockAndProceed() {
-            // 💥 T-Spin判定の検証（Tミノかつ最後が回転操作で、かつ周りが埋まっているか）
             let isTspin = false;
             if (currentPiece.colorId === 3 && lastActionWasRotate) {
                 let tx = currentPiece.x; let ty = currentPiece.y;
                 let corners = 0;
-                // Tミノの4隅チェック
                 if (tx < 0 || localField[ty]?.[tx]) corners++;
                 if (tx + 2 >= COLS || localField[ty]?.[tx+2]) corners++;
                 if (tx < 0 || ty + 2 >= ROWS || localField[ty+2]?.[tx]) corners++;
@@ -738,7 +801,7 @@
             const el = document.getElementById(`${target}-popup`);
             el.textContent = text;
             el.style.display = 'none';
-            void el.offsetWidth; // アニメーションリセット用
+            void el.offsetWidth;
             el.style.display = 'block';
         }
 
@@ -747,7 +810,7 @@
         function riseAttackBlocks() {
             for (let i = 0; i < pendingAttackLines; i++) {
                 localField.shift();
-                let attackRow = Array(COLS).fill(8); // グレーの邪魔ブロック
+                let attackRow = Array(COLS).fill(8);
                 attackRow[Math.floor(Math.random() * COLS)] = 0;
                 localField.push(attackRow);
             }
@@ -778,7 +841,6 @@
             lockAndProceed();
         }
 
-        // 💡 ゴースト（落下予測地点）のY座標を算出する関数
         function getGhostY() {
             let gy = currentPiece.y;
             while (!checkCollision(currentPiece.x, gy + 1, currentPiece.shape)) { gy++; }
@@ -833,22 +895,17 @@
 
             if (gameInterval || isCountingDown) {
                 if (currentPiece.colorId) {
-                    // 💡 ゴースト（予測位置）を先に半透明で描画
                     drawGhost(localCtx, currentPiece, getGhostY());
                     drawPiece(localCtx, currentPiece);
                 }
             }
             if (remotePiece) {
-                // 相手側の予測位置は、相手から送られてくる情報を元に簡易配置
-                let rgy = remotePiece.y;
-                while (rgy < ROWS && !remoteField[rgy]?.some((v, c) => remotePiece.shape[0]?.[c] && v)) { rgy++; } // 簡易判定
                 drawPiece(remoteCtx, remotePiece);
             }
             
             if (localHoldId) drawHold(localHoldCtx, localHoldId);
             if (remoteHoldId) drawHold(remoteHoldCtx, remoteHoldId);
 
-            // 💡 NEXTキューの描画 (最大3個先まで)
             drawNext(localNextCtx, localNextQueue);
             if (remoteNextQueue.length > 0) drawNext(remoteNextCtx, remoteNextQueue);
         }
@@ -881,7 +938,6 @@
             }
         }
 
-        // 💡 ゴースト表示用（枠線だけの薄いブロック）
         function drawGhost(ctx, piece, ghostY) {
             ctx.strokeStyle = COLORS[piece.colorId]; ctx.lineWidth = 2;
             for (let r = 0; r < piece.shape.length; r++) {
@@ -901,7 +957,6 @@
             }
         }
 
-        // 💡 NEXTキューの描画処理
         function drawNext(ctx, queue) {
             for (let i = 0; i < 3; i++) {
                 const id = queue[i]; if (!id) continue;
