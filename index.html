@@ -1,42 +1,60 @@
-<body>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>P2P オンライン対戦テトリス (デバッグ版)</title>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body style="font-family: sans-serif; padding: 20px; background: #f0f2f5;">
 
     <h1>P2P オンライン対戦テトリス</h1>
 
-    <div id="connection-setup" style="margin-bottom: 20px; padding: 15px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 5px;">
+    <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ccc; background: #fff; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
         <div style="margin-bottom: 10px;">
-            <label for="player-name-input"><strong>あなたの名前: </strong></label>
+            <label><strong>あなたの名前: </strong></label>
             <input type="text" id="player-name-input" value="プレイヤー" style="padding: 5px; font-size: 16px; width: 150px;">
         </div>
         
         <div>
-            <label for="room-id-input"><strong>部屋番号（数字4桁など）: </strong></label>
+            <label><strong>部屋番号: </strong></label>
             <input type="text" id="room-id-input" placeholder="例: 1234" style="padding: 5px; font-size: 16px; width: 100px;">
-            
             <button id="make-room-btn" style="padding: 5px 10px; font-size: 16px; margin-left: 10px;">① 部屋を作る</button>
             <button id="join-room-btn" style="padding: 5px 10px; font-size: 16px;">② 部屋に入る</button>
-            
             <span id="connection-status" style="margin-left: 15px; font-weight: bold; color: #ff0000;">未接続</span>
         </div>
     </div>
 
-    <div style="display: flex; gap: 40px; justify-content: center;">
+    <div style="display: flex; gap: 40px; justify-content: center; margin-bottom: 20px;">
         <div style="text-align: center;">
             <h2 id="local-name">あなた (PLAYER 1)</h2>
             <canvas id="local-canvas" width="300" height="600" style="border: 2px solid #333; background: #111;"></canvas>
-            <p>SCORE: <span id="local-score">0</span></p>
         </div>
         <div style="text-align: center;">
             <h2 id="remote-name">あいて (PLAYER 2)</h2>
             <canvas id="remote-canvas" width="300" height="600" style="border: 2px solid #333; background: #111;"></canvas>
-            <p>SCORE: <span id="remote-score">0</span></p>
         </div>
+    </div>
+
+    <div style="background: #222; color: #0f0; padding: 15px; border-radius: 5px; font-family: monospace; max-height: 200px; overflow-y: auto;">
+        <h3>🛠️ システムデバッグログ</h3>
+        <div id="debug-log"></div>
     </div>
 
     <script>
         let peer = null;
         let conn = null;
         const statusEl = document.getElementById('connection-status');
+        const logEl = document.getElementById('debug-log');
         const ROOM_PREFIX = "github-tetris-room-";
+
+        // ログを画面に出力する関数
+        function printLog(msg, isError = false) {
+            const time = new Date().toLocaleTimeString();
+            const color = isError ? 'red' : '#0f0';
+            logEl.innerHTML += `<div style="color: ${color}">[${time}] ${msg}</div>`;
+            logEl.scrollTop = logEl.scrollHeight; // 常に最新をスクロール表示
+            console.log(`[${time}] ${msg}`);
+        }
 
         // 1. 部屋を作る（ホスト側）
         document.getElementById('make-room-btn').addEventListener('click', () => {
@@ -44,24 +62,33 @@
             if (!roomId) return alert("部屋番号を入力してください");
 
             statusEl.textContent = "部屋を開設中...";
-            peer = new Peer(ROOM_PREFIX + roomId);
+            printLog(`PeerJSサーバーに接続を試みています... (部屋ID: ${ROOM_PREFIX + roomId})`);
+            
+            // 💡 デバッグログを詳細に出すオプションを追加 (debug: 3)
+            peer = new Peer(ROOM_PREFIX + roomId, { debug: 3 });
 
             peer.on('open', (id) => {
-                statusEl.textContent = `部屋 ${roomId} で待機中... 友達に入ってもらってね！`;
+                statusEl.textContent = `部屋 ${roomId} で待機中...`;
                 statusEl.style.color = "orange";
+                printLog(`部屋の開設に成功しました！相手の接続を待っています...`);
                 
-                // 自分の画面に名前を反映
                 const myName = document.getElementById('player-name-input').value;
                 document.getElementById('local-name').textContent = myName + " (あなた)";
             });
 
+            // エラーをキャッチして画面に表示する
             peer.on('error', (err) => {
-                if (err.type === 'unavailable-id') alert("その部屋番号はすでに使われています！");
-                statusEl.textContent = "未接続"; statusEl.style.color = "red";
+                statusEl.textContent = "エラー発生";
+                statusEl.style.color = "red";
+                printLog(`【エラー】種類: ${err.type} / メッセージ: ${err.message}`, true);
+                if (err.type === 'unavailable-id') {
+                    printLog("→ その部屋番号はすでに他の人が使っています。別の番号を試してください。", true);
+                }
             });
 
             peer.on('connection', (connection) => {
                 conn = connection;
+                printLog(`相手からの接続要求を検知しました！`);
                 setupConnection();
             });
         });
@@ -72,55 +99,57 @@
             if (!roomId) return alert("部屋番号を入力してください");
 
             statusEl.textContent = "接続中...";
-            peer = new Peer();
+            printLog(`ランダムなIDでPeerを作成します...`);
+            
+            peer = new Peer({ debug: 3 });
 
             peer.on('open', () => {
-                // 自分の画面に名前を反映
+                printLog(`自分の一時接続IDが発行されました。部屋 ${roomId} へ接続を開始します...`);
                 const myName = document.getElementById('player-name-input').value;
                 document.getElementById('local-name').textContent = myName + " (あなた)";
 
                 conn = peer.connect(ROOM_PREFIX + roomId);
                 setupConnection();
             });
+
+            peer.on('error', (err) => {
+                statusEl.textContent = "エラー発生";
+                statusEl.style.color = "red";
+                printLog(`【エラー】種類: ${err.type} / メッセージ: ${err.message}`, true);
+            });
         });
 
         // 🤝 接続完了後の処理
         function setupConnection() {
             conn.on('open', () => {
-                statusEl.textContent = "対戦接続完了！ゲーム開始できます。";
+                statusEl.textContent = "対戦接続完了！";
                 statusEl.style.color = "green";
+                printLog(`P2Pデータチャネルが開きました！対戦可能です。`);
                 
-                // ✨ 接続が完了したら、即座に自分の名前を相手に送りつける！
                 const myName = document.getElementById('player-name-input').value;
                 conn.send({ type: 'NAME', name: myName });
             });
 
-            // データを受信したとき
             conn.on('data', (data) => {
-                // 送られてきたデータの「種類（type）」で処理を分ける
+                printLog(`データ受信: ${JSON.stringify(data)}`);
                 if (data.type === 'NAME') {
-                    // ✨ 相手から名前が届いたら、右側の表示を書き換える
                     document.getElementById('remote-name').textContent = data.name + " (あいて)";
-                    
-                    // ホスト側は、ゲストから名前を貰ったら自分も名前を返し忘れないようにする
                     if (peer.id.startsWith(ROOM_PREFIX)) { 
                         const myName = document.getElementById('player-name-input').value;
                         conn.send({ type: 'NAME', name: myName });
                     }
-                }
-                
-                if (data.type === 'GAME_DATA') {
-                    // ここで相手のテトリス盤面（後で実装）を受け取る
                 }
             });
 
             conn.on('close', () => {
                 statusEl.textContent = "切断されました";
                 statusEl.style.color = "red";
+                printLog(`接続が終了しました。`);
                 document.getElementById('remote-name').textContent = "あいて (PLAYER 2)";
             });
         }
     </script>
 </body>
+</html>
 </body>
 </html>
